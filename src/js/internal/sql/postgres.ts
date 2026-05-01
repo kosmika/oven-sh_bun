@@ -241,7 +241,7 @@ function wrapPostgresError(error: Error | PostgresErrorOptions) {
 }
 
 initPostgres(
-  function onResolvePostgresQuery(query, result, commandTag, count, queries, is_last) {
+  function onResolvePostgresQuery(query, result, commandTag, count, queries, is_last, statement) {
     if (is_last) {
       if (queries) {
         const queriesIndex = queries.indexOf(query);
@@ -267,6 +267,10 @@ initPostgres(
     }
 
     result.count = count || 0;
+    if (statement) {
+      result.statement = statement;
+      result.columns = statement.columns;
+    }
     const last_result = query[_results];
 
     if (!last_result) {
