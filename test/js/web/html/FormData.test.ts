@@ -1,5 +1,6 @@
 import { describe, expect, it, test } from "bun:test";
 import { bunEnv, bunExe, isWindows } from "harness";
+import { totalmem } from "os";
 import { join } from "path";
 
 describe("FormData", () => {
@@ -845,7 +846,7 @@ it("drops multipart part Content-Type values containing control characters", asy
 // on Windows (where ArrayBuffer backing commits eagerly). Use the
 // cgroup-aware limit when available so containerized CI runners aren't fooled
 // by the host's physical RAM.
-const effectiveMemory = process.constrainedMemory?.() || require("os").totalmem();
+const effectiveMemory = process.constrainedMemory?.() || totalmem();
 it.skipIf(isWindows || effectiveMemory < 16 * 1024 * 1024 * 1024)(
   "multipart parser handles parts at offsets > 4 GiB",
   async () => {
