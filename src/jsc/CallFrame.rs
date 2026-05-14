@@ -262,6 +262,7 @@ impl<const MAX: usize> Arguments<MAX> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct CallerSrcLoc {
     pub str: bun_core::String,
     pub line: c_uint,
