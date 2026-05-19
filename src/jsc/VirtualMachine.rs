@@ -4597,23 +4597,6 @@ impl VirtualMachine {
         Ok(promise)
     }
 
-    /// Spec VirtualMachine.zig:2410 `loadEntryPointForWebWorker`.
-    pub fn load_entry_point_for_web_worker(
-        &mut self,
-        entry_path: &[u8],
-    ) -> Result<*mut JSInternalPromise, bun_core::Error> {
-        let promise = self.reload_entry_point(entry_path)?;
-        self.event_loop_mut().perform_gc();
-        self.event_loop_mut()
-            .wait_for_promise_with_termination(jsc::AnyPromise::Internal(promise));
-        if let Some(worker) = self.worker_ref() {
-            if worker.has_requested_terminate() {
-                return Err(bun_core::err!("WorkerTerminated"));
-            }
-        }
-        Ok(self.pending_internal_promise.unwrap())
-    }
-
     /// Spec VirtualMachine.zig:2424 `loadEntryPointForTestRunner`.
     pub fn load_entry_point_for_test_runner(
         &mut self,
