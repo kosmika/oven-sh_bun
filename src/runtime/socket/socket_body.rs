@@ -2498,7 +2498,26 @@ impl<const SSL: bool> NewSocket<SSL> {
         _frame: &CallFrame,
     ) -> JsResult<JSValue> {
         jsc::mark_binding!();
+        // Capture the in-flight-connect state before close_and_detach() sets
+        // DETACHED. Resetting a SEMI_SOCKET (Connected arm, handshake not yet
+        // established) dispatches no terminal callback in us_socket_close, so
+        // on_close/mark_inactive never runs — balance connect_finish's ref_(),
+        // downgrade the Strong this_value, and release the event-loop ref here,
+        // exactly as close() does. Without it those refs leak (LSan-caught).
+        let socket = this.socket.get();
+        let is_semi_connect = socket.socket.get().is_some() && !socket.is_established();
         this.close_and_detach(uws::CloseCode::Failure);
+        if is_semi_connect {
+            this.poll_ref.with_mut(|p| {
+                p.unref(bun_io::posix_event_loop::get_vm_ctx(
+                    bun_io::AllocatorType::Js,
+                ))
+            });
+            if !matches!(this.this_value.get(), JsRef::Finalized) {
+                this.this_value.with_mut(|r| r.downgrade());
+            }
+            this.deref();
+        }
         Ok(JSValue::UNDEFINED)
     }
 
