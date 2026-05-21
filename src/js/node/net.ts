@@ -1202,7 +1202,11 @@ Socket.prototype._destroy = function _destroy(err, callback) {
 
     if (this.resetAndClosing) {
       this.resetAndClosing = false;
-      const err = this._handle.close();
+      // resetAndDestroy() must send an RST (not a graceful FIN) so the peer sees
+      // ECONNRESET. `close()` does a fast shutdown (clean close) which only
+      // happens to surface as RST on some platforms; `terminate()` arms
+      // SO_LINGER{1,0} for a real reset on all platforms.
+      const err = this._handle.terminate();
       setImmediate(() => {
         $debug("emit close");
         this.emit("close", isException);
