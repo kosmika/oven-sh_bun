@@ -296,6 +296,14 @@ const SocketHandlers: SocketHandler = {
 } as const;
 
 function SocketEmitEndNT(self, _err?) {
+  // A read-side error delivered through close(socket, err) — e.g. a received RST
+  // surfacing as ECONNRESET ("read ECONNRESET") — is not a clean EOF. Surface it
+  // as 'error' like Node rather than a graceful end. Guard on !destroyed so an
+  // already-torn-down socket isn't re-destroyed.
+  if (_err && !self.destroyed) {
+    self.destroy(_err);
+    return;
+  }
   if (!self[kended]) {
     if (!self.allowHalfOpen) {
       self.write = writeAfterFIN;
@@ -303,10 +311,6 @@ function SocketEmitEndNT(self, _err?) {
     self[kended] = true;
     self.push(null);
   }
-  // TODO: check how the best way to handle this
-  // if (err) {
-  //   self.destroy(err);
-  // }
 }
 
 const ServerHandlers: SocketHandler<NetSocket> = {
