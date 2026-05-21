@@ -600,7 +600,16 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
     if (err) $debug(err);
     if (self[kclosed]) return;
     self[kclosed] = true;
-    // TODO: should we be doing something with err?
+    // A received RST surfacing as ECONNRESET with the close is not a clean
+    // EOF — Node destroys the socket with "read ECONNRESET" instead of a
+    // graceful 'end'. Only a genuine reset is surfaced here: self-initiated
+    // closes can deliver an artifact error for a socket whose owner isn't the
+    // one being destroyed (e.g. the raw socket handed off during a TLS
+    // upgrade), and those must keep ending cleanly.
+    if (err && err.code === "ECONNRESET" && !self.destroyed) {
+      self.destroy(new ConnResetException("read ECONNRESET"));
+      return;
+    }
     self[kended] = true;
     if (!self.allowHalfOpen) self.write = writeAfterFIN;
     self.push(null);
