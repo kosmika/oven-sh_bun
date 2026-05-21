@@ -225,12 +225,24 @@ let _SECURE_PROTOCOL_METHODS: Set<string> | undefined;
 function getSecureProtocolMethods() {
   if (!_SECURE_PROTOCOL_METHODS) {
     _SECURE_PROTOCOL_METHODS = new Set([
-      "TLS_method", "TLS_client_method", "TLS_server_method",
-      "SSLv23_method", "SSLv23_client_method", "SSLv23_server_method",
-      "TLSv1_method", "TLSv1_client_method", "TLSv1_server_method",
-      "TLSv1_1_method", "TLSv1_1_client_method", "TLSv1_1_server_method",
-      "TLSv1_2_method", "TLSv1_2_client_method", "TLSv1_2_server_method",
-      "TLSv1_3_method", "TLSv1_3_client_method", "TLSv1_3_server_method",
+      "TLS_method",
+      "TLS_client_method",
+      "TLS_server_method",
+      "SSLv23_method",
+      "SSLv23_client_method",
+      "SSLv23_server_method",
+      "TLSv1_method",
+      "TLSv1_client_method",
+      "TLSv1_server_method",
+      "TLSv1_1_method",
+      "TLSv1_1_client_method",
+      "TLSv1_1_server_method",
+      "TLSv1_2_method",
+      "TLSv1_2_client_method",
+      "TLSv1_2_server_method",
+      "TLSv1_3_method",
+      "TLSv1_3_client_method",
+      "TLSv1_3_server_method",
     ]);
   }
   return _SECURE_PROTOCOL_METHODS;
@@ -252,8 +264,18 @@ function validateSecureProtocol(secureProtocol) {
 }
 
 function validateSecureContextOptions(options) {
-  const { ciphers, passphrase, ecdhCurve, minVersion, maxVersion, sessionTimeout, ticketKeys, clientCertEngine, dhparam, secureProtocol } =
-    options;
+  const {
+    ciphers,
+    passphrase,
+    ecdhCurve,
+    minVersion,
+    maxVersion,
+    sessionTimeout,
+    ticketKeys,
+    clientCertEngine,
+    dhparam,
+    secureProtocol,
+  } = options;
   validateSecureProtocol(secureProtocol);
   if (ciphers !== undefined && ciphers !== null) validateString(ciphers, "options.ciphers");
   if (passphrase !== undefined && passphrase !== null) validateString(passphrase, "options.passphrase");
@@ -515,7 +537,11 @@ function tlsStringToProtocolVersion(v) {
 // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/secure-context.js#L120
 function secureProtocolToVersionRange(secureProtocol) {
   if (typeof secureProtocol !== "string") return null;
-  if (secureProtocol === "TLSv1_method" || secureProtocol === "TLSv1_client_method" || secureProtocol === "TLSv1_server_method")
+  if (
+    secureProtocol === "TLSv1_method" ||
+    secureProtocol === "TLSv1_client_method" ||
+    secureProtocol === "TLSv1_server_method"
+  )
     return [TLS1_VERSION, TLS1_VERSION];
   if (
     secureProtocol === "TLSv1_1_method" ||
@@ -547,7 +573,10 @@ function newNativeSecureContext(options) {
       ca: options.ca || null,
     };
   }
-  if (options && (options.minVersion !== undefined || options.maxVersion !== undefined || options.secureProtocol !== undefined)) {
+  if (
+    options &&
+    (options.minVersion !== undefined || options.maxVersion !== undefined || options.secureProtocol !== undefined)
+  ) {
     // Translate minVersion/maxVersion/secureProtocol to the integer protocol
     // range the native layer applies, so the bindings receive numbers, not the
     // user-facing strings.
