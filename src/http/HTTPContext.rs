@@ -1366,7 +1366,11 @@ impl<const SSL: bool> Handler<SSL> {
         // 4. Dead socket: it is already marked as dead
         let tagged = HTTPContext::<SSL>::get_tagged(ptr);
         HTTPContext::<SSL>::mark_tagged_socket_as_dead(socket, tagged);
-        socket.close(uws::CloseKind::Failure);
+        // The peer finished gracefully (FIN); answer with a graceful close (FIN),
+        // not a Failure close — Failure arms SO_LINGER{1,0} and sends an RST,
+        // which makes well-behaved servers (including Node's net/http servers)
+        // observe ECONNRESET on every connection this client is done with.
+        socket.close(uws::CloseKind::Normal);
 
         if let Some(client) = tagged.client_mut() {
             client.on_close::<SSL>(socket);
