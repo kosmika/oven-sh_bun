@@ -219,9 +219,34 @@ const VALID_TLS_VERSIONS = new Set(["TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3"]);
 
 // Subset of Node's configSecureContext() validations:
 // https://github.com/nodejs/node/blob/843dc5f0d5ad/lib/internal/tls/secure-context.js#L318
+// Valid OpenSSL/BoringSSL secureProtocol method names (legacy API).
+const SECURE_PROTOCOL_METHODS = new Set([
+  "TLS_method", "TLS_client_method", "TLS_server_method",
+  "SSLv23_method", "SSLv23_client_method", "SSLv23_server_method",
+  "TLSv1_method", "TLSv1_client_method", "TLSv1_server_method",
+  "TLSv1_1_method", "TLSv1_1_client_method", "TLSv1_1_server_method",
+  "TLSv1_2_method", "TLSv1_2_client_method", "TLSv1_2_server_method",
+  "TLSv1_3_method", "TLSv1_3_client_method", "TLSv1_3_server_method",
+]);
+// Matches Node: SSLv2/SSLv3 methods are disabled, anything unrecognized is an
+// unknown method.
+// https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/secure-context.js#L100
+function validateSecureProtocol(secureProtocol) {
+  if (secureProtocol === undefined || secureProtocol === null) return;
+  validateString(secureProtocol, "options.secureProtocol");
+  if (secureProtocol.startsWith("SSLv2_")) throw new Error("SSLv2 methods disabled");
+  if (secureProtocol.startsWith("SSLv3_")) throw new Error("SSLv3 methods disabled");
+  if (!SECURE_PROTOCOL_METHODS.has(secureProtocol)) {
+    const error = new Error(`Unknown method: ${secureProtocol}`);
+    error.code = "ERR_TLS_INVALID_PROTOCOL_METHOD";
+    throw error;
+  }
+}
+
 function validateSecureContextOptions(options) {
-  const { ciphers, passphrase, ecdhCurve, minVersion, maxVersion, sessionTimeout, ticketKeys, clientCertEngine, dhparam } =
+  const { ciphers, passphrase, ecdhCurve, minVersion, maxVersion, sessionTimeout, ticketKeys, clientCertEngine, dhparam, secureProtocol } =
     options;
+  validateSecureProtocol(secureProtocol);
   if (ciphers !== undefined && ciphers !== null) validateString(ciphers, "options.ciphers");
   if (passphrase !== undefined && passphrase !== null) validateString(passphrase, "options.passphrase");
   if (ecdhCurve !== undefined && ecdhCurve !== null) validateString(ecdhCurve, "options.ecdhCurve");
