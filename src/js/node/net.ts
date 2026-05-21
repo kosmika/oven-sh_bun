@@ -66,6 +66,7 @@ const kReinitializeHandle = Symbol("kReinitializeHandle");
 
 const kRealListen = Symbol("kRealListen");
 const kSetNoDelay = Symbol("kSetNoDelay");
+const kSetTOS = Symbol("kSetTOS");
 const kSetKeepAlive = Symbol("kSetKeepAlive");
 const kSetKeepAliveInitialDelay = Symbol("kSetKeepAliveInitialDelay");
 const kConnectOptions = Symbol("connect-options");
@@ -1419,6 +1420,35 @@ Socket.prototype.setNoDelay = function setNoDelay(enable = true) {
     this._handle.setNoDelay(enable);
   }
   return this;
+};
+
+// Matches Node's setTypeOfService/getTypeOfService. Bun's native socket handle
+// has no setTypeOfService/getTypeOfService, so these fall through to caching the
+// value, mirroring Node's no-native-handle fallback.
+// https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/net.js#L661
+Socket.prototype.setTypeOfService = function setTypeOfService(tos) {
+  if (Number.isNaN(tos)) {
+    throw $ERR_INVALID_ARG_TYPE("tos", "number", tos);
+  }
+  validateInt32(tos, "tos", 0, 255);
+
+  if (!this._handle || !this._handle.setTypeOfService) {
+    this[kSetTOS] = tos;
+    return this;
+  }
+
+  if (tos !== this[kSetTOS]) {
+    this[kSetTOS] = tos;
+    this._handle.setTypeOfService(tos);
+  }
+  return this;
+};
+
+Socket.prototype.getTypeOfService = function getTypeOfService() {
+  if (!this._handle || !this._handle.getTypeOfService) {
+    return this[kSetTOS] !== undefined ? this[kSetTOS] : 0;
+  }
+  return this._handle.getTypeOfService();
 };
 
 Socket.prototype.setTimeout = {

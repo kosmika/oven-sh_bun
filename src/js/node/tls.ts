@@ -219,10 +219,22 @@ const VALID_TLS_VERSIONS = new Set(["TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3"]);
 // Subset of Node's configSecureContext() validations:
 // https://github.com/nodejs/node/blob/843dc5f0d5ad/lib/internal/tls/secure-context.js#L318
 function validateSecureContextOptions(options) {
-  const { ciphers, passphrase, ecdhCurve, minVersion, maxVersion, sessionTimeout, ticketKeys } = options;
+  const { ciphers, passphrase, ecdhCurve, minVersion, maxVersion, sessionTimeout, ticketKeys, clientCertEngine, dhparam } =
+    options;
   if (ciphers !== undefined && ciphers !== null) validateString(ciphers, "options.ciphers");
   if (passphrase !== undefined && passphrase !== null) validateString(passphrase, "options.passphrase");
   if (ecdhCurve !== undefined && ecdhCurve !== null) validateString(ecdhCurve, "options.ecdhCurve");
+  // clientCertEngine must be a string (engine name). Matches Node:
+  // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/secure-context.js#L296
+  if (typeof clientCertEngine !== "string" && clientCertEngine !== undefined && clientCertEngine !== null) {
+    throw $ERR_INVALID_ARG_TYPE("options.clientCertEngine", ["string", "null", "undefined"], clientCertEngine);
+  }
+  // BoringSSL (always used by Bun) has no automatic DH parameter selection.
+  // Matches Node's setDHParam('auto') throwing ERR_CRYPTO_UNSUPPORTED_OPERATION.
+  // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/secure-context.js#L254
+  if (dhparam === "auto") {
+    throw $ERR_CRYPTO_UNSUPPORTED_OPERATION("Automatic DH parameter selection is not supported");
+  }
   if (minVersion != null && !VALID_TLS_VERSIONS.has(minVersion))
     throw $ERR_TLS_INVALID_PROTOCOL_VERSION(String(minVersion), "minimum");
   if (maxVersion != null && !VALID_TLS_VERSIONS.has(maxVersion))
@@ -537,6 +549,11 @@ function TLSSocket(socket?, options?) {
 
   NetSocket.$call(this, options);
 
+  // A server-side TLSSocket is created with { isServer: true }; track it so
+  // server-only guards (e.g. setServername throwing ERR_TLS_SNI_FROM_SERVER)
+  // behave like Node. Accepted sockets set this again in onconnection.
+  this.isServer = !!options.isServer;
+
   this.ciphers = options.ciphers;
   if (this.ciphers) {
     validateCiphers(options.ciphers);
@@ -678,6 +695,7 @@ TLSSocket.prototype.enableTrace = function enableTrace() {
 };
 
 TLSSocket.prototype.setServername = function setServername(name) {
+  validateString(name, "name");
   if (this.isServer) {
     throw $ERR_TLS_SNI_FROM_SERVER();
   }
