@@ -578,23 +578,24 @@ function newNativeSecureContext(options) {
       ca: options.ca || null,
     };
   }
-  if (
-    options &&
-    (options.minVersion !== undefined || options.maxVersion !== undefined || options.secureProtocol !== undefined)
-  ) {
-    // Translate minVersion/maxVersion/secureProtocol to the integer protocol
-    // range the native layer applies, so the bindings receive numbers, not the
-    // user-facing strings. Note: the module-level DEFAULT_MIN/MAX_VERSION are
-    // intentionally not applied here as a fallback — doing so surfaces a
-    // pre-existing TLS1.2-specific hang in test-tls-net-socket-keepalive.
-    let minVersion = tlsStringToProtocolVersion(options.minVersion);
-    let maxVersion = tlsStringToProtocolVersion(options.maxVersion);
-    const range = secureProtocolToVersionRange(options.secureProtocol);
-    if (range) {
-      minVersion = range[0];
-      maxVersion = range[1];
+  if (options) {
+    // Read each option once. Translate minVersion/maxVersion/secureProtocol to
+    // the integer protocol range the native layer applies, so the bindings
+    // receive numbers, not the user-facing strings. Note: the module-level
+    // DEFAULT_MIN/MAX_VERSION are intentionally not applied here as a fallback —
+    // doing so surfaces a pre-existing TLS1.2-specific hang in
+    // test-tls-net-socket-keepalive.
+    const { minVersion: optMinVersion, maxVersion: optMaxVersion, secureProtocol: optSecureProtocol } = options;
+    if (optMinVersion !== undefined || optMaxVersion !== undefined || optSecureProtocol !== undefined) {
+      let minVersion = tlsStringToProtocolVersion(optMinVersion);
+      let maxVersion = tlsStringToProtocolVersion(optMaxVersion);
+      const range = secureProtocolToVersionRange(optSecureProtocol);
+      if (range) {
+        minVersion = range[0];
+        maxVersion = range[1];
+      }
+      options = { ...options, minVersion, maxVersion };
     }
-    options = { ...options, minVersion, maxVersion };
   }
   return NativeSecureContext.intern(options);
 }
@@ -712,8 +713,11 @@ function TLSSocket(socket?, options?) {
   // A custom SNICallback must be a function — but Node only validates it on the
   // server side (it is meaningless for a client), inside the isServer branch.
   // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/wrap.js#L929
-  if (isServer && options.SNICallback != null) {
-    validateFunction(options.SNICallback, "options.SNICallback");
+  if (isServer) {
+    const sniCallback = options.SNICallback;
+    if (sniCallback != null) {
+      validateFunction(sniCallback, "options.SNICallback");
+    }
   }
 
   this.ciphers = options.ciphers;
@@ -952,8 +956,11 @@ function Server(options, secureConnectionListener): void {
   }
   // A custom SNICallback must be a function.
   // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/wrap.js#L929
-  if (options != null && typeof options === "object" && options.SNICallback != null) {
-    validateFunction(options.SNICallback, "options.SNICallback");
+  if (options != null && typeof options === "object") {
+    const sniCallback = options.SNICallback;
+    if (sniCallback != null) {
+      validateFunction(sniCallback, "options.SNICallback");
+    }
   }
 
   NetServer.$apply(this, [options, secureConnectionListener]);
