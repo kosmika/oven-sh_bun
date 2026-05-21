@@ -12,7 +12,6 @@ const {
   validateInt32,
   validateBuffer,
   validateFunction,
-  validateArray,
 } = require("internal/validators");
 
 const { Server: NetServer, Socket: NetSocket } = net;
@@ -1263,7 +1262,19 @@ let _defaultCACertificatesOverride: Array<string> | undefined;
 
 let _X509CertificateClass: any;
 function setDefaultCACertificates(certs) {
-  validateArray(certs, "certs");
+  // Node validates this with ERR_INVALID_ARG_TYPE + the Array *constructor*,
+  // which renders "must be an instance of Array" (validateArray, by contrast,
+  // renders "of type Array"), so build the error to match.
+  if (!$isArray(certs)) {
+    let received;
+    if (certs === null) received = "null";
+    else if (typeof certs === "object") received = `an instance of ${certs.constructor?.name ?? "Object"}`;
+    else if (typeof certs === "string") received = `type string ('${certs}')`;
+    else received = `type ${typeof certs} (${String(certs)})`;
+    const error = new TypeError(`The "certs" argument must be an instance of Array. Received ${received}`);
+    error.code = "ERR_INVALID_ARG_TYPE";
+    throw error;
+  }
   _X509CertificateClass ??= require("node:crypto").X509Certificate;
   // Parse each cert and de-duplicate by fingerprint so getCACertificates()
   // returns a normalized, unique PEM set (Node behavior). Build into a temp
