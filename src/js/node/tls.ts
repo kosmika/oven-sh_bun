@@ -2,6 +2,7 @@
 const { isArrayBufferView } = require("node:util/types");
 const net = require("node:net");
 const Duplex = require("internal/streams/duplex");
+const EventEmitter = require("node:events");
 const addServerName = $newZigFunction("Listener.zig", "jsAddServerName", 3);
 const { throwNotImplemented } = require("internal/shared");
 const { throwOnInvalidTLSArray } = require("internal/tls");
@@ -614,6 +615,14 @@ function TLSSocket(socket?, options?) {
   this.encrypted = true;
 
   const isNetSocketOrDuplex = socket instanceof Duplex;
+
+  // A provided underlying socket must be a Duplex/net.Socket. An event emitter
+  // that isn't a stream (e.g. a bare EventEmitter) is not a valid socket — Node
+  // throws when wrapping it. Distinguished from a TLS options object, which is
+  // not an EventEmitter.
+  if (socket != null && !isNetSocketOrDuplex && socket instanceof EventEmitter) {
+    throw $ERR_INVALID_ARG_TYPE("socket", "Duplex", socket);
+  }
 
   options = isNetSocketOrDuplex ? { ...options, allowHalfOpen: false } : options || socket || {};
 
