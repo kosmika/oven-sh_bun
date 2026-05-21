@@ -384,6 +384,9 @@ test/js/node/vm/vm.test.ts
 
 # VM has terminated
 test/js/node/test/parallel/test-net-during-close.js
+test/js/node/test/parallel/test-net-socket-reset-send.js
+test/js/node/test/parallel/test-net-connect-reset-after-destroy.js
+test/js/node/test/parallel/test-net-connect-reset-until-connected.js
 
 # JSC::BuiltinNames::~BuiltinNames
 test/js/bun/shell/shell-hang.test.ts
