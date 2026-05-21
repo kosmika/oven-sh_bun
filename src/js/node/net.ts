@@ -1053,7 +1053,10 @@ Socket.prototype.connect = function connect(...args) {
           connection.on("close", events[3]);
           this._handle = result;
         } else {
-          if (socket) {
+          // upgradeTLS requires an established socket; a socket that is still
+          // connecting (e.g. tls.connect({ socket: net.connect(port) })) must be
+          // upgraded once it emits 'connect'.
+          if (socket && !connection.connecting) {
             this[kupgraded] = connection;
             const result = socket.upgradeTLS({
               data: { self: this, req: { oncomplete: afterConnect } },
@@ -1074,6 +1077,13 @@ Socket.prototype.connect = function connect(...args) {
           } else {
             // wait to be connected
             connection.once("connect", () => {
+              // The TLS socket may have been destroyed before the underlying
+              // socket connected (e.g. tls.connect({ socket }).destroy()); don't
+              // start a handshake on a dead socket.
+              if (this.destroyed) {
+                connection.destroy();
+                return;
+              }
               const socket = connection._handle;
               if (!upgradeDuplex && socket) {
                 // if is named pipe socket we can upgrade it using the same wrapper than we use for duplex
