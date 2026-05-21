@@ -1260,26 +1260,40 @@ function cacheExtraCACertificates(): string[] {
 // https://github.com/nodejs/node/blob/main/lib/internal/tls/secure-context.js
 let _defaultCACertificatesOverride: Array<string> | undefined;
 
-let _X509CertificateClass: any;
-function setDefaultCACertificates(certs) {
-  // Node validates this with ERR_INVALID_ARG_TYPE + the Array *constructor*,
-  // which renders "must be an instance of Array" (validateArray, by contrast,
-  // renders "of type Array"), so build the error to match.
+type CACertInput = string | NodeJS.ArrayBufferView;
+interface X509CertificateLike {
+  readonly fingerprint256: string;
+  toString(): string;
+}
+type X509CertificateCtor = new (cert: CACertInput) => X509CertificateLike;
+let _X509CertificateClass: X509CertificateCtor | undefined;
+
+// tls.setDefaultCACertificates(certs)
+// https://github.com/nodejs/node/blob/v25.2.1/lib/tls.js#L202
+// Node validates `certs` as an Array (its ERR_INVALID_ARG_TYPE renders the
+// 'Array' name as "an instance of Array"; Bun's validateArray renders the same
+// name as "of type Array", so build the error directly to match Node here),
+// then hands the certs to the native root store. Bun has no equivalent native
+// store override, so keep a JS-side override that getCACertificates('default')
+// and createSecureContext() read.
+function setDefaultCACertificates(certs: ReadonlyArray<CACertInput>): void {
   if (!$isArray(certs)) {
-    let received;
+    let received: string;
     if (certs === null) received = "null";
-    else if (typeof certs === "object") received = `an instance of ${certs.constructor?.name ?? "Object"}`;
+    else if (typeof certs === "object") received = `an instance of ${(certs as object).constructor?.name ?? "Object"}`;
     else if (typeof certs === "string") received = `type string ('${certs}')`;
     else received = `type ${typeof certs} (${String(certs)})`;
-    const error = new TypeError(`The "certs" argument must be an instance of Array. Received ${received}`);
+    const error = new TypeError(`The "certs" argument must be an instance of Array. Received ${received}`) as Error & {
+      code: string;
+    };
     error.code = "ERR_INVALID_ARG_TYPE";
     throw error;
   }
-  _X509CertificateClass ??= require("node:crypto").X509Certificate;
+  _X509CertificateClass ??= require("node:crypto").X509Certificate as X509CertificateCtor;
   // Parse each cert and de-duplicate by fingerprint so getCACertificates()
-  // returns a normalized, unique PEM set (Node behavior). Build into a temp
-  // array and only commit on success, so an invalid element leaves the
-  // previous default untouched.
+  // returns a normalized, unique PEM set (matching Node, whose native store
+  // collapses duplicates). Build into a temp array and only commit on success,
+  // so an invalid element leaves the previous default untouched.
   const seen = new Set<string>();
   const normalized: Array<string> = [];
   for (let i = 0; i < certs.length; i++) {
