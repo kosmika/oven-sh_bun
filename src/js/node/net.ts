@@ -81,8 +81,10 @@ const kwriteCallback = Symbol("writeCallback");
 const kSocketClass = Symbol("kSocketClass");
 
 function endNT(socket, callback, err) {
-  // Close the writable side once Writable signals the final write is done.
-  socket.$end();
+  // Node's _final half-closes the writable side (sends FIN) and leaves the
+  // readable side open; the Duplex's allowHalfOpen drives the eventual destroy.
+  // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/net.js#L500
+  socket.shutdown();
   callback(err);
 }
 function emitCloseNT(self, hasError) {
@@ -450,9 +452,10 @@ function onconnection(err, clientHandle) {
   const options = self[bunSocketServerOptions];
   const { pauseOnConnect, connectionListener, [kSocketClass]: SClass, requestCert, rejectUnauthorized } = options;
   // Propagate the server's half-open/highWaterMark settings to the accepted
-  // socket. The native layer is always half-open, so the Duplex's allowHalfOpen
-  // is what decides whether the writable side auto-ends when the peer FINs;
-  // without this, net.createServer({ allowHalfOpen: true }) would be ignored.
+  // socket. The native socket's half-open flag is set to match the Duplex's
+  // allowHalfOpen (default false closes on peer FIN, true keeps the writable
+  // side open), so both layers agree; without this,
+  // net.createServer({ allowHalfOpen: true }) would be ignored.
   // Matches Node's onconnection:
   // https://github.com/nodejs/node/blob/843dc5f0d5ad/lib/net.js#L2349
   const _socket = new SClass({
@@ -679,10 +682,9 @@ function kConnectTcp(self, addressType, req, address, port) {
     hostname: address,
     port,
     ipv6Only: addressType === 6,
-    // The native socket is kept half-open so it never auto-closes on peer FIN;
-    // the JS Duplex's allowHalfOpen drives whether the writable side ends and
-    // the socket is destroyed (matches Node, where libuv sockets are half-open
-    // and the stream layer decides).
+    // The native socket's half-open flag is set to match the JS Duplex's
+    // allowHalfOpen: default false closes on peer FIN, true keeps the writable
+    // side open (matches Node/libuv, where the stream layer decides).
     allowHalfOpen: self.allowHalfOpen,
     tls: req.tls,
     data: { self, req },
@@ -1226,7 +1228,7 @@ Socket.prototype._destroy = function _destroy(err, callback) {
 Socket.prototype._final = function _final(callback) {
   $debug("Socket.prototype._final");
   if (this.connecting) {
-    return this.once("connect", () => this._final(callback));
+    return this.once("connect", this._final.bind(this, callback));
   }
   const socket = this._handle;
 
@@ -2445,9 +2447,9 @@ Server.prototype[kRealListen] = function (
     this._handle = Bun.listen({
       unix: path,
       tls,
-      // Native sockets are kept half-open; the per-connection Duplex's
-      // allowHalfOpen (propagated from the server in onconnection) drives the
-      // auto-end/destroy in JS.
+      // The native socket's half-open flag matches the per-connection Duplex's
+      // allowHalfOpen (propagated from the server in onconnection): false closes
+      // on peer FIN, true keeps the writable side open.
       allowHalfOpen: this.allowHalfOpen,
       reusePort: reusePort || this[bunSocketServerOptions]?.reusePort || false,
       ipv6Only: ipv6Only || this[bunSocketServerOptions]?.ipv6Only || false,

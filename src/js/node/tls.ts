@@ -569,6 +569,20 @@ TLSSocket.prototype._start = function _start() {
   this.connect();
 };
 
+TLSSocket.prototype._final = function _final(callback) {
+  // Defer the FIN until the TLS handshake completes. net.Socket._final calls
+  // socket.shutdown(), which while SSL is still in init half-closes the write
+  // side before the client's TLS Finished is flushed — the peer then sees a
+  // bare FIN and reports ECONNRESET (e.g. socket.end('') right after
+  // tls.connect()). Node's native TLSWrap.DoShutdown likewise flushes the
+  // handshake output before the underlying stream's FIN.
+  // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/src/crypto/crypto_tls.cc#L1203
+  if (this.secureConnecting) {
+    return this.once("secureConnect", NetSocket.prototype._final.bind(this, callback));
+  }
+  return NetSocket.prototype._final.$call(this, callback);
+};
+
 TLSSocket.prototype.getSession = function getSession() {
   return this._handle?.getSession?.();
 };
