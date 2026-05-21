@@ -278,6 +278,12 @@ impl SSLConfig {
         if self.secure_options != other.secure_options {
             return false;
         }
+        if self.ssl_min_version != other.ssl_min_version {
+            return false;
+        }
+        if self.ssl_max_version != other.ssl_max_version {
+            return false;
+        }
         if self.request_cert != other.request_cert {
             return false;
         }

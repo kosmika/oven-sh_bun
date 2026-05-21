@@ -2324,6 +2324,8 @@ Server.prototype.listen = function listen(port, hostname, onListen) {
   let allowHalfOpen = false;
   let reusePort = false;
   let ipv6Only = false;
+  let readableAll = false;
+  let writableAll = false;
   let fd;
   //port is actually path
   if (typeof port === "string") {
@@ -2368,9 +2370,9 @@ Server.prototype.listen = function listen(port, hostname, onListen) {
       reusePort = options.reusePort;
       backlog = options.backlog;
       // For a unix-socket listen, readableAll/writableAll chmod the socket file
-      // in kRealListen (which runs deferred); stash on the server instance.
-      this._readableAll = options.readableAll;
-      this._writableAll = options.writableAll;
+      // in kRealListen; threaded through as locals (not stashed on the instance).
+      readableAll = options.readableAll;
+      writableAll = options.writableAll;
 
       if (typeof options.fd === "number" && options.fd >= 0) {
         fd = options.fd;
@@ -2493,6 +2495,8 @@ Server.prototype.listen = function listen(port, hostname, onListen) {
       ipv6Only,
       allowHalfOpen,
       reusePort,
+      readableAll,
+      writableAll,
       undefined,
       undefined,
       path,
@@ -2516,6 +2520,8 @@ Server.prototype[kRealListen] = function (
   ipv6Only,
   allowHalfOpen,
   reusePort,
+  readableAll,
+  writableAll,
   tls,
   contexts,
   _onListen,
@@ -2540,16 +2546,17 @@ Server.prototype[kRealListen] = function (
     // sockets (no filesystem entry). uSockets binds synchronously, so the file
     // exists by the time Bun.listen returns.
     // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/net.js#L1899
-    if ((this._readableAll || this._writableAll) && process.platform !== "win32" && path.charCodeAt(0) !== 0) {
+    if ((readableAll || writableAll) && process.platform !== "win32" && path.charCodeAt(0) !== 0) {
       let desired = 0;
-      if (this._readableAll) desired |= 0o44; // S_IRGRP | S_IROTH
-      if (this._writableAll) desired |= 0o22; // S_IWGRP | S_IWOTH
+      if (readableAll) desired |= 0o44; // S_IRGRP | S_IROTH
+      if (writableAll) desired |= 0o22; // S_IWGRP | S_IWOTH
       try {
         const fs = require("node:fs");
         const cur = fs.statSync(path).mode;
         if ((cur & desired) !== desired) fs.chmodSync(path, cur | desired);
       } catch (e) {
-        this._handle?.close?.();
+        // _handle is a Bun.listen SocketListener: it exposes stop(), not close().
+        this._handle?.stop?.(true);
         this._handle = null;
         throw e;
       }
@@ -2665,6 +2672,8 @@ function listenInCluster(
   ipv6Only,
   allowHalfOpen,
   reusePort,
+  readableAll,
+  writableAll,
   flags,
   options,
   path,
@@ -2686,6 +2695,8 @@ function listenInCluster(
       ipv6Only,
       allowHalfOpen,
       reusePort,
+      readableAll,
+      writableAll,
       tls,
       contexts,
       onListen,
@@ -2716,6 +2727,8 @@ function listenInCluster(
       ipv6Only,
       allowHalfOpen,
       reusePort,
+      readableAll,
+      writableAll,
       tls,
       contexts,
       onListen,

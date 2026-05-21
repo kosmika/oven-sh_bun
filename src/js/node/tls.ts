@@ -244,7 +244,8 @@ function validateSecureProtocol(secureProtocol) {
   if (secureProtocol.startsWith("SSLv2_")) throw new Error("SSLv2 methods disabled");
   if (secureProtocol.startsWith("SSLv3_")) throw new Error("SSLv3 methods disabled");
   if (!getSecureProtocolMethods().has(secureProtocol)) {
-    const error = new Error(`Unknown method: ${secureProtocol}`);
+    // ERR_TLS_INVALID_PROTOCOL_METHOD is a TypeError in Node.
+    const error = new TypeError(`Unknown method: ${secureProtocol}`);
     error.code = "ERR_TLS_INVALID_PROTOCOL_METHOD";
     throw error;
   }
@@ -265,7 +266,7 @@ function validateSecureContextOptions(options) {
     if (typeof clientCertEngine !== "string") {
       throw $ERR_INVALID_ARG_TYPE("options.clientCertEngine", ["string", "null", "undefined"], clientCertEngine);
     }
-    throw $ERR_CRYPTO_CUSTOM_ENGINE_NOT_SUPPORTED(clientCertEngine);
+    throw $ERR_CRYPTO_CUSTOM_ENGINE_NOT_SUPPORTED("Custom engines not supported by this OpenSSL");
   }
   // BoringSSL (always used by Bun) has no automatic DH parameter selection.
   // Matches Node's setDHParam('auto') throwing ERR_CRYPTO_UNSUPPORTED_OPERATION.
@@ -711,6 +712,10 @@ TLSSocket.prototype._final = function _final(callback) {
   // tls.connect()). Node's native TLSWrap.DoShutdown likewise flushes the
   // handshake output before the underlying stream's FIN.
   // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/src/crypto/crypto_tls.cc#L1203
+  // A never-connected TLSSocket (e.g. new tls.TLSSocket().end(cb)) has no handle
+  // and no handshake to wait for; finish immediately like NetSocket._final's
+  // no-handle fast path, otherwise the deferred callback would never fire.
+  if (!this._handle) return callback();
   if (this.secureConnecting) {
     return this.once("secureConnect", NetSocket.prototype._final.bind(this, callback));
   }
