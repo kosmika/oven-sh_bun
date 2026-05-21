@@ -224,10 +224,15 @@ function validateSecureContextOptions(options) {
   if (ciphers !== undefined && ciphers !== null) validateString(ciphers, "options.ciphers");
   if (passphrase !== undefined && passphrase !== null) validateString(passphrase, "options.passphrase");
   if (ecdhCurve !== undefined && ecdhCurve !== null) validateString(ecdhCurve, "options.ecdhCurve");
-  // clientCertEngine must be a string (engine name). Matches Node:
+  // clientCertEngine must be a string (engine name); a provided engine then
+  // fails because BoringSSL (which Bun always uses) has no OpenSSL ENGINE
+  // support, matching Node's setClientCertEngine. Node:
   // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/secure-context.js#L296
-  if (typeof clientCertEngine !== "string" && clientCertEngine !== undefined && clientCertEngine !== null) {
-    throw $ERR_INVALID_ARG_TYPE("options.clientCertEngine", ["string", "null", "undefined"], clientCertEngine);
+  if (clientCertEngine !== undefined && clientCertEngine !== null) {
+    if (typeof clientCertEngine !== "string") {
+      throw $ERR_INVALID_ARG_TYPE("options.clientCertEngine", ["string", "null", "undefined"], clientCertEngine);
+    }
+    throw $ERR_CRYPTO_CUSTOM_ENGINE_NOT_SUPPORTED(clientCertEngine);
   }
   // BoringSSL (always used by Bun) has no automatic DH parameter selection.
   // Matches Node's setDHParam('auto') throwing ERR_CRYPTO_UNSUPPORTED_OPERATION.
@@ -245,7 +250,11 @@ function validateSecureContextOptions(options) {
       throw $ERR_INVALID_ARG_VALUE("options.ticketKeys", ticketKeys.byteLength, "must be exactly 48 bytes");
     }
   }
-  if (sessionTimeout !== undefined && sessionTimeout !== null) validateInt32(sessionTimeout, "options.sessionTimeout");
+  // Negative session timeouts are rejected (min 0), matching Node — newer
+  // OpenSSL/BoringSSL do not handle negative values as users expect.
+  // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/secure-context.js#L319
+  if (sessionTimeout !== undefined && sessionTimeout !== null)
+    validateInt32(sessionTimeout, "options.sessionTimeout", 0);
 }
 
 const SymbolReplace = Symbol.replace;
@@ -554,6 +563,12 @@ function TLSSocket(socket?, options?) {
   // behave like Node. Accepted sockets set this again in onconnection.
   this.isServer = !!options.isServer;
 
+  // A custom SNICallback must be a function (matches Node's TLSSocket init).
+  // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/wrap.js#L929
+  if (options.SNICallback != null) {
+    validateFunction(options.SNICallback, "options.SNICallback");
+  }
+
   this.ciphers = options.ciphers;
   if (this.ciphers) {
     validateCiphers(options.ciphers);
@@ -771,6 +786,17 @@ function Server(options, secureConnectionListener): void {
     return new Server(options, secureConnectionListener);
   }
 
+  // tls.createServer(options) requires an object (a function is the connection
+  // listener); matches Node throwing ERR_INVALID_ARG_TYPE for e.g. a string.
+  if (options != null && typeof options !== "object" && typeof options !== "function") {
+    throw $ERR_INVALID_ARG_TYPE("options", "object", options);
+  }
+  // A custom SNICallback must be a function.
+  // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/wrap.js#L929
+  if (options != null && typeof options === "object" && options.SNICallback != null) {
+    validateFunction(options.SNICallback, "options.SNICallback");
+  }
+
   NetServer.$apply(this, [options, secureConnectionListener]);
 
   this.key = undefined;
@@ -960,7 +986,15 @@ function connect(...args) {
     convertALPNProtocols(ALPNProtocols, options);
   }
 
-  return new TLSSocket(options).connect(normal);
+  const tlssock = new TLSSocket(options);
+  // Honor the `timeout` option here: Socket.prototype.connect does not (only
+  // the net.createConnection factory does), so tls.connect applies it
+  // explicitly, exactly like Node's tls connect.
+  // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/wrap.js#L1791
+  if (options.timeout) {
+    tlssock.setTimeout(options.timeout);
+  }
+  return tlssock.connect(normal);
 }
 
 function getCiphers() {
