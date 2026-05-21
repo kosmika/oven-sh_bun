@@ -404,6 +404,9 @@ struct us_bun_socket_context_options_t {
     const char * const *ca;
     unsigned int ca_count;
     unsigned int secure_options;
+    // Minimum/maximum TLS protocol version (TLS1_VERSION..TLS1_3_VERSION); 0 = unset/default.
+    int ssl_min_version;
+    int ssl_max_version;
     int reject_unauthorized;
     int request_cert;
     unsigned int client_renegotiation_limit;

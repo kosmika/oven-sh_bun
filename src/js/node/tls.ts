@@ -456,6 +456,54 @@ const NativeSecureContext = $zig("SecureContext.zig", "js.getConstructor");
 // accepts null|string|ArrayBuffer|Blob|array, so coerce falsy → null before
 // crossing into native so `{ key: false }` etc. doesn't throw
 // ERR_INVALID_ARG_TYPE from the bindgen layer.
+// BoringSSL TLS1_x_VERSION constants (from openssl/tls1.h). The native context
+// applies these via SSL_CTX_set_min/max_proto_version.
+const TLS1_VERSION = 0x0301;
+const TLS1_1_VERSION = 0x0302;
+const TLS1_2_VERSION = 0x0303;
+const TLS1_3_VERSION = 0x0304;
+function tlsStringToProtocolVersion(v) {
+  switch (v) {
+    case "TLSv1":
+      return TLS1_VERSION;
+    case "TLSv1.1":
+      return TLS1_1_VERSION;
+    case "TLSv1.2":
+      return TLS1_2_VERSION;
+    case "TLSv1.3":
+      return TLS1_3_VERSION;
+    default:
+      return 0;
+  }
+}
+// Node's legacy secureProtocol string pins both bounds to a single version
+// (e.g. 'TLSv1_2_method'); 'TLS_method'/'SSLv23_method' leave the range open.
+// https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/secure-context.js#L120
+function secureProtocolToVersionRange(secureProtocol) {
+  if (typeof secureProtocol !== "string") return null;
+  if (secureProtocol === "TLSv1_method" || secureProtocol === "TLSv1_client_method" || secureProtocol === "TLSv1_server_method")
+    return [TLS1_VERSION, TLS1_VERSION];
+  if (
+    secureProtocol === "TLSv1_1_method" ||
+    secureProtocol === "TLSv1_1_client_method" ||
+    secureProtocol === "TLSv1_1_server_method"
+  )
+    return [TLS1_1_VERSION, TLS1_1_VERSION];
+  if (
+    secureProtocol === "TLSv1_2_method" ||
+    secureProtocol === "TLSv1_2_client_method" ||
+    secureProtocol === "TLSv1_2_server_method"
+  )
+    return [TLS1_2_VERSION, TLS1_2_VERSION];
+  if (
+    secureProtocol === "TLSv1_3_method" ||
+    secureProtocol === "TLSv1_3_client_method" ||
+    secureProtocol === "TLSv1_3_server_method"
+  )
+    return [TLS1_3_VERSION, TLS1_3_VERSION];
+  return null;
+}
+
 function newNativeSecureContext(options) {
   if (options && (!options.key || !options.cert || !options.ca)) {
     options = {
@@ -464,6 +512,19 @@ function newNativeSecureContext(options) {
       cert: options.cert || null,
       ca: options.ca || null,
     };
+  }
+  if (options && (options.minVersion !== undefined || options.maxVersion !== undefined || options.secureProtocol !== undefined)) {
+    // Translate minVersion/maxVersion/secureProtocol to the integer protocol
+    // range the native layer applies, so the bindings receive numbers, not the
+    // user-facing strings.
+    let minVersion = tlsStringToProtocolVersion(options.minVersion);
+    let maxVersion = tlsStringToProtocolVersion(options.maxVersion);
+    const range = secureProtocolToVersionRange(options.secureProtocol);
+    if (range) {
+      minVersion = range[0];
+      maxVersion = range[1];
+    }
+    options = { ...options, minVersion, maxVersion };
   }
   return NativeSecureContext.intern(options);
 }

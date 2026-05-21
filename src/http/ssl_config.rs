@@ -35,6 +35,9 @@ pub struct SSLConfig {
     pub ca: CStrSlice,
 
     pub secure_options: u32,
+    /// Minimum/maximum TLS protocol version (TLS1_VERSION..TLS1_3_VERSION); 0 = unset/default.
+    pub ssl_min_version: i32,
+    pub ssl_max_version: i32,
     pub request_cert: i32,
     pub reject_unauthorized: i32,
     pub ssl_ciphers: CStrPtr,
@@ -110,6 +113,8 @@ impl SSLConfig {
         cert: None,
         ca: None,
         secure_options: 0,
+        ssl_min_version: 0,
+        ssl_max_version: 0,
         request_cert: 0,
         reject_unauthorized: 0,
         ssl_ciphers: core::ptr::null(),
@@ -207,6 +212,8 @@ impl SSLConfig {
         }
         ctx_opts.request_cert = self.request_cert;
         ctx_opts.reject_unauthorized = self.reject_unauthorized;
+        ctx_opts.ssl_min_version = self.ssl_min_version;
+        ctx_opts.ssl_max_version = self.ssl_max_version;
 
         ctx_opts
     }
@@ -335,6 +342,8 @@ impl SSLConfig {
         hash_slice!(cert);
         hash_slice!(ca);
         hasher.update(&self.secure_options.to_ne_bytes());
+        hasher.update(&self.ssl_min_version.to_ne_bytes());
+        hasher.update(&self.ssl_max_version.to_ne_bytes());
         hasher.update(&self.request_cert.to_ne_bytes());
         hasher.update(&self.reject_unauthorized.to_ne_bytes());
         hash_cstr!(ssl_ciphers);
@@ -419,6 +428,8 @@ impl Clone for SSLConfig {
             cert: clone_strings(&self.cert),
             ca: clone_strings(&self.ca),
             secure_options: self.secure_options,
+            ssl_min_version: self.ssl_min_version,
+            ssl_max_version: self.ssl_max_version,
             request_cert: self.request_cert,
             reject_unauthorized: self.reject_unauthorized,
             ssl_ciphers: clone_string(self.ssl_ciphers),

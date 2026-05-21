@@ -468,7 +468,12 @@ SSL_CTX *us_ssl_ctx_build_raw(struct us_bun_socket_context_options_t options,
   /* Default options we rely on — changing these breaks the BIO logic. */
   SSL_CTX_set_read_ahead(ssl_context, 1);
   SSL_CTX_set_mode(ssl_context, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
-  SSL_CTX_set_min_proto_version(ssl_context, TLS1_2_VERSION);
+  /* Honor explicit minVersion/maxVersion (Node's secureProtocol/min/maxVersion);
+   * default to a TLS1.2 floor when no minimum is requested. */
+  SSL_CTX_set_min_proto_version(ssl_context, options.ssl_min_version ? options.ssl_min_version : TLS1_2_VERSION);
+  if (options.ssl_max_version) {
+    SSL_CTX_set_max_proto_version(ssl_context, options.ssl_max_version);
+  }
 
   if (options.ssl_prefer_low_memory_usage) {
     SSL_CTX_set_mode(ssl_context, SSL_MODE_RELEASE_BUFFERS);

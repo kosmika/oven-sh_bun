@@ -113,6 +113,8 @@ pub struct BunSocketContextOptions {
     pub ca: *const *const c_char,
     pub ca_count: u32,
     pub secure_options: u32,
+    pub ssl_min_version: i32,
+    pub ssl_max_version: i32,
     pub reject_unauthorized: i32,
     pub request_cert: i32,
     pub client_renegotiation_limit: u32,
@@ -136,6 +138,8 @@ impl Default for BunSocketContextOptions {
             ca: ptr::null(),
             ca_count: 0,
             secure_options: 0,
+            ssl_min_version: 0,
+            ssl_max_version: 0,
             reject_unauthorized: 0,
             request_cert: 0,
             client_renegotiation_limit: 3,
@@ -234,6 +238,8 @@ impl BunSocketContextOptions {
         feed_arr(&mut h, self.cert, self.cert_count);
         feed_arr(&mut h, self.ca, self.ca_count);
         h.update(bun_core::bytes_of(&self.secure_options));
+        h.update(bun_core::bytes_of(&self.ssl_min_version));
+        h.update(bun_core::bytes_of(&self.ssl_max_version));
         h.update(bun_core::bytes_of(&self.reject_unauthorized));
         h.update(bun_core::bytes_of(&self.request_cert));
         h.update(bun_core::bytes_of(&self.client_renegotiation_limit));
