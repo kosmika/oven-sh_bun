@@ -2341,7 +2341,7 @@ Server.prototype.listen = function listen(port, hostname, onListen) {
     if (typeof port === "function") {
       onListen = port;
       port = 0;
-    } else if (typeof port === "object") {
+    } else if (port !== null && typeof port === "object") {
       const options = port;
       addServerAbortSignalOption(this, options);
 
@@ -2361,31 +2361,47 @@ Server.prototype.listen = function listen(port, hostname, onListen) {
 
       const isLinux = process.platform === "linux" || process.platform === "android";
 
-      if (!Number.isSafeInteger(port) || port < 0) {
-        if (path) {
-          const isAbstractPath = path.startsWith("\0");
-          if (isLinux && isAbstractPath && (options.writableAll || options.readableAll)) {
-            const message = `The argument 'options' can not set readableAll or writableAll to true when path is abstract unix socket. Received ${JSON.stringify(options)}`;
+      // Match Node's listen() option normalization + validation.
+      // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/net.js#L2145
+      if ((port === undefined && "port" in options) || port === null) {
+        port = 0;
+      }
 
-            const error = new TypeError(message);
-            error.code = "ERR_INVALID_ARG_VALUE";
-            throw error;
-          }
-
-          hostname = path;
-          port = undefined;
-        } else {
-          let message = 'The argument \'options\' must have the property "port" or "path"';
-          try {
-            message = `${message}. Received ${JSON.stringify(options)}`;
-          } catch {}
+      if (typeof port === "number" || typeof port === "string") {
+        // validatePort coerces "0" -> 0 and throws ERR_SOCKET_BAD_PORT for
+        // out-of-range/non-numeric values; a valid port takes precedence over path.
+        validatePort(port, "options.port");
+        port = port | 0;
+      } else if (isPipeName(path)) {
+        const isAbstractPath = path.startsWith("\0");
+        if (isLinux && isAbstractPath && (options.writableAll || options.readableAll)) {
+          const message = `The argument 'options' can not set readableAll or writableAll to true when path is abstract unix socket. Received ${JSON.stringify(options)}`;
 
           const error = new TypeError(message);
           error.code = "ERR_INVALID_ARG_VALUE";
           throw error;
         }
-      } else if (port === undefined) {
-        port = 0;
+
+        hostname = path;
+        port = undefined;
+      } else if (!("port" in options) && !("path" in options)) {
+        let message = 'The argument \'options\' must have the property "port" or "path"';
+        try {
+          message = `${message}. Received ${JSON.stringify(options)}`;
+        } catch {}
+
+        const error = new TypeError(message);
+        error.code = "ERR_INVALID_ARG_VALUE";
+        throw error;
+      } else {
+        let message = "The argument 'options' is invalid";
+        try {
+          message = `${message}. Received ${JSON.stringify(options)}`;
+        } catch {}
+
+        const error = new TypeError(message);
+        error.code = "ERR_INVALID_ARG_VALUE";
+        throw error;
       }
 
       // port <number>
@@ -2399,8 +2415,21 @@ Server.prototype.listen = function listen(port, hostname, onListen) {
       // signal <AbortSignal> An AbortSignal that may be used to close a listening server.
 
       if (typeof options.callback === "function") onListen = options?.callback;
-    } else if (!Number.isSafeInteger(port) || port < 0) {
+    } else if (port === undefined || port === null) {
       port = 0;
+    } else if (typeof port === "number" || typeof port === "string") {
+      // Positional port: validatePort coerces and throws ERR_SOCKET_BAD_PORT for
+      // out-of-range/non-numeric values, matching Node's normalizeArgs + validatePort.
+      validatePort(port, "options.port");
+      port = port | 0;
+    } else {
+      let message = "The argument 'options' is invalid";
+      try {
+        message = `${message}. Received ${JSON.stringify(port)}`;
+      } catch {}
+      const error = new TypeError(message);
+      error.code = "ERR_INVALID_ARG_VALUE";
+      throw error;
     }
     hostname = hostname || "::";
   }
