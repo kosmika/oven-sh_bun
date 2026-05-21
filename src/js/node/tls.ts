@@ -12,6 +12,7 @@ const {
   validateInt32,
   validateBuffer,
   validateFunction,
+  validateArray,
 } = require("internal/validators");
 
 const { Server: NetServer, Socket: NetSocket } = net;
@@ -644,6 +645,12 @@ function SecureContext(options): void {
 
 function createSecureContext(options) {
   if (options instanceof InternalSecureContext) return options;
+  // When tls.setDefaultCACertificates() has installed an override and no
+  // explicit `ca` was given, use the override as the default CA set so the
+  // process-wide default takes effect (matches Node's secure-context default).
+  if (_defaultCACertificatesOverride !== undefined && (options == null || options.ca == null)) {
+    options = { ...options, ca: _defaultCACertificatesOverride };
+  }
   // The native handle (SSL_CTX) is memoised inside `NativeSecureContext.intern`
   // by the per-VM `SSLContextCache`, so no JS-side hashing here. The JS wrapper
   // is built fresh because it carries the per-call `servername`.
@@ -1247,11 +1254,46 @@ function cacheExtraCACertificates(): string[] {
   return extraCACertificates;
 }
 
+// Runtime override for the "default" CA certificate set, installed by
+// tls.setDefaultCACertificates(). undefined = no override (use the real
+// bundled/system default). Only affects type "default"/implicit — "bundled",
+// "system" and "extra" are unchanged.
+// https://github.com/nodejs/node/blob/main/lib/internal/tls/secure-context.js
+let _defaultCACertificatesOverride: Array<string> | undefined;
+
+let _X509CertificateClass: any;
+function setDefaultCACertificates(certs) {
+  validateArray(certs, "certs");
+  _X509CertificateClass ??= require("node:crypto").X509Certificate;
+  // Parse each cert and de-duplicate by fingerprint so getCACertificates()
+  // returns a normalized, unique PEM set (Node behavior). Build into a temp
+  // array and only commit on success, so an invalid element leaves the
+  // previous default untouched.
+  const seen = new Set<string>();
+  const normalized: Array<string> = [];
+  for (let i = 0; i < certs.length; i++) {
+    const cert = certs[i];
+    if (typeof cert !== "string" && !isArrayBufferView(cert)) {
+      throw $ERR_INVALID_ARG_TYPE(`certs[${i}]`, "string or an instance of ArrayBufferView", cert);
+    }
+    const x509 = new _X509CertificateClass(cert);
+    const fingerprint = x509.fingerprint256;
+    if (!seen.has(fingerprint)) {
+      seen.add(fingerprint);
+      normalized.push(x509.toString());
+    }
+  }
+  _defaultCACertificatesOverride = normalized;
+}
+
 function getCACertificates(type = "default") {
   validateString(type, "type");
 
   switch (type) {
     case "default":
+      if (_defaultCACertificatesOverride !== undefined) {
+        return _defaultCACertificatesOverride.slice();
+      }
       return cacheDefaultCACertificates();
     case "bundled":
       return cacheBundledRootCertificates();
@@ -1297,6 +1339,7 @@ export default {
   DEFAULT_MAX_VERSION,
   DEFAULT_MIN_VERSION,
   getCiphers,
+  setDefaultCACertificates,
   parseCertString,
   SecureContext,
   Server,
