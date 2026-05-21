@@ -693,7 +693,10 @@ TLSSocket.prototype.getSharedSigalgs = function getSharedSigalgs() {
 };
 
 TLSSocket.prototype.getProtocol = function getProtocol() {
-  return this._handle?.getTLSVersion?.();
+  // Node returns the negotiated protocol string, or null once the socket is no
+  // longer connected (e.g. after 'close').
+  // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/_tls_wrap.js#L1455
+  return this._handle?.getTLSVersion?.() ?? null;
 };
 
 TLSSocket.prototype.getFinished = function getFinished() {
