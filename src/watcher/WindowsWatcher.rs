@@ -322,8 +322,7 @@ impl WindowsWatcher {
         // for the other backends) becomes 1 ms rather than truncating
         // to 0 and disabling the wait; an explicit `0` still means
         // "don't wait".
-        self.coalesce_interval_ms = match bun_core::env_var::BUN_INOTIFY_COALESCE_INTERVAL.get()
-        {
+        self.coalesce_interval_ms = match bun_core::env_var::BUN_INOTIFY_COALESCE_INTERVAL.get() {
             Some(0) => 0,
             Some(ns) => ns
                 .div_ceil(1_000_000)
