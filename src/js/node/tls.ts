@@ -706,12 +706,13 @@ function TLSSocket(socket?, options?) {
   // A server-side TLSSocket is created with { isServer: true }; track it so
   // server-only guards (e.g. setServername throwing ERR_TLS_SNI_FROM_SERVER)
   // behave like Node. Accepted sockets set this again in onconnection.
-  this.isServer = !!options.isServer;
+  const isServer = !!options.isServer;
+  this.isServer = isServer;
 
   // A custom SNICallback must be a function — but Node only validates it on the
   // server side (it is meaningless for a client), inside the isServer branch.
   // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/wrap.js#L929
-  if (this.isServer && options.SNICallback != null) {
+  if (isServer && options.SNICallback != null) {
     validateFunction(options.SNICallback, "options.SNICallback");
   }
 
