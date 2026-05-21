@@ -250,16 +250,21 @@ function getSecureProtocolMethods() {
 // Matches Node: SSLv2/SSLv3 methods are disabled, anything unrecognized is an
 // unknown method.
 // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/secure-context.js#L100
+function invalidProtocolMethod(message) {
+  // Node throws all secureProtocol failures (SSLv2/SSLv3 disabled + unknown
+  // method) via THROW_ERR_TLS_INVALID_PROTOCOL_METHOD: a TypeError carrying the
+  // ERR_TLS_INVALID_PROTOCOL_METHOD code, varying only the message.
+  const error = new TypeError(message);
+  error.code = "ERR_TLS_INVALID_PROTOCOL_METHOD";
+  return error;
+}
 function validateSecureProtocol(secureProtocol) {
   if (secureProtocol === undefined || secureProtocol === null) return;
   validateString(secureProtocol, "options.secureProtocol");
-  if (secureProtocol.startsWith("SSLv2_")) throw new Error("SSLv2 methods disabled");
-  if (secureProtocol.startsWith("SSLv3_")) throw new Error("SSLv3 methods disabled");
+  if (secureProtocol.startsWith("SSLv2_")) throw invalidProtocolMethod("SSLv2 methods disabled");
+  if (secureProtocol.startsWith("SSLv3_")) throw invalidProtocolMethod("SSLv3 methods disabled");
   if (!getSecureProtocolMethods().has(secureProtocol)) {
-    // ERR_TLS_INVALID_PROTOCOL_METHOD is a TypeError in Node.
-    const error = new TypeError(`Unknown method: ${secureProtocol}`);
-    error.code = "ERR_TLS_INVALID_PROTOCOL_METHOD";
-    throw error;
+    throw invalidProtocolMethod(`Unknown method: ${secureProtocol}`);
   }
 }
 
