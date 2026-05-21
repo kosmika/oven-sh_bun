@@ -296,6 +296,14 @@ const SocketHandlers: SocketHandler = {
 } as const;
 
 function SocketEmitEndNT(self, _err?) {
+  // A read error delivered with the close (e.g. a received RST surfacing as
+  // ECONNRESET) is not a clean EOF — Node destroys the socket with the error
+  // ("read ECONNRESET") instead of emitting a graceful 'end'. Guard on
+  // !destroyed so an already-torn-down socket isn't re-destroyed.
+  if (_err && !self.destroyed) {
+    self.destroy(_err.code === "ECONNRESET" ? new ConnResetException("read ECONNRESET") : _err);
+    return;
+  }
   if (!self[kended]) {
     if (!self.allowHalfOpen) {
       self.write = writeAfterFIN;
