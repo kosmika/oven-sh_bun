@@ -578,15 +578,15 @@ function newNativeSecureContext(options) {
       ca: options.ca || null,
     };
   }
-  if (
-    options &&
-    (options.minVersion !== undefined || options.maxVersion !== undefined || options.secureProtocol !== undefined)
-  ) {
-    // Translate minVersion/maxVersion/secureProtocol to the integer protocol
-    // range the native layer applies, so the bindings receive numbers, not the
-    // user-facing strings.
-    let minVersion = tlsStringToProtocolVersion(options.minVersion);
-    let maxVersion = tlsStringToProtocolVersion(options.maxVersion);
+  if (options) {
+    // Resolve minVersion/maxVersion (falling back to the module defaults the
+    // same way Node's secure-context does, so tls.DEFAULT_MIN_VERSION /
+    // tls.DEFAULT_MAX_VERSION are honored) and secureProtocol into the integer
+    // protocol range the native layer applies — the bindings receive numbers,
+    // not the user-facing strings.
+    // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/secure-context.js#L112
+    let minVersion = tlsStringToProtocolVersion(options.minVersion ?? DEFAULT_MIN_VERSION);
+    let maxVersion = tlsStringToProtocolVersion(options.maxVersion ?? DEFAULT_MAX_VERSION);
     const range = secureProtocolToVersionRange(options.secureProtocol);
     if (range) {
       minVersion = range[0];
@@ -1088,10 +1088,13 @@ $toClass(Server, "Server", NetServer);
 function createServer(options, connectionListener) {
   return new Server(options, connectionListener);
 }
-const DEFAULT_ECDH_CURVE = "auto",
-  // https://github.com/Jarred-Sumner/uSockets/blob/fafc241e8664243fc0c51d69684d5d02b9805134/src/crypto/openssl.c#L519-L523
-  DEFAULT_MIN_VERSION = "TLSv1.2",
-  DEFAULT_MAX_VERSION = "TLSv1.3";
+const DEFAULT_ECDH_CURVE = "auto";
+// https://github.com/Jarred-Sumner/uSockets/blob/fafc241e8664243fc0c51d69684d5d02b9805134/src/crypto/openssl.c#L519-L523
+// `let` so the exported DEFAULT_MIN_VERSION/DEFAULT_MAX_VERSION accessors can be
+// reassigned (tls.DEFAULT_MAX_VERSION = ...) and have newNativeSecureContext
+// observe the change, matching Node where these are mutable module properties.
+let DEFAULT_MIN_VERSION = "TLSv1.2";
+let DEFAULT_MAX_VERSION = "TLSv1.3";
 
 function normalizeConnectArgs(listArgs) {
   const args = net._normalizeArgs(listArgs);
@@ -1292,8 +1295,18 @@ export default {
     setTLSDefaultCiphers(value);
   },
   DEFAULT_ECDH_CURVE,
-  DEFAULT_MAX_VERSION,
-  DEFAULT_MIN_VERSION,
+  get DEFAULT_MAX_VERSION() {
+    return DEFAULT_MAX_VERSION;
+  },
+  set DEFAULT_MAX_VERSION(value) {
+    DEFAULT_MAX_VERSION = value;
+  },
+  get DEFAULT_MIN_VERSION() {
+    return DEFAULT_MIN_VERSION;
+  },
+  set DEFAULT_MIN_VERSION(value) {
+    DEFAULT_MIN_VERSION = value;
+  },
   getCiphers,
   parseCertString,
   SecureContext,
