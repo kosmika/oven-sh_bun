@@ -708,9 +708,10 @@ function TLSSocket(socket?, options?) {
   // behave like Node. Accepted sockets set this again in onconnection.
   this.isServer = !!options.isServer;
 
-  // A custom SNICallback must be a function (matches Node's TLSSocket init).
+  // A custom SNICallback must be a function — but Node only validates it on the
+  // server side (it is meaningless for a client), inside the isServer branch.
   // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/internal/tls/wrap.js#L929
-  if (options.SNICallback != null) {
+  if (this.isServer && options.SNICallback != null) {
     validateFunction(options.SNICallback, "options.SNICallback");
   }
 
