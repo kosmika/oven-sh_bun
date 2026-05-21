@@ -296,16 +296,6 @@ const SocketHandlers: SocketHandler = {
 } as const;
 
 function SocketEmitEndNT(self, _err?) {
-  // A read-side error delivered through close(socket, err) — e.g. a received RST
-  // surfacing as ECONNRESET — is not a clean EOF. Surface it as 'error' like
-  // Node rather than a graceful end. Guard on !destroyed so an already-torn-down
-  // socket isn't re-destroyed. The native error is formatted UVException-style
-  // ("ECONNRESET: connection reset by peer, read"); re-shape the common reset to
-  // Node's ErrnoException form ("read ECONNRESET").
-  if (_err && !self.destroyed) {
-    self.destroy(_err.code === "ECONNRESET" ? new ConnResetException("read ECONNRESET") : _err);
-    return;
-  }
   if (!self[kended]) {
     if (!self.allowHalfOpen) {
       self.write = writeAfterFIN;
