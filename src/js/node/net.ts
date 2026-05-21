@@ -2353,6 +2353,10 @@ Server.prototype.listen = function listen(port, hostname, onListen) {
       allowHalfOpen = options.allowHalfOpen;
       reusePort = options.reusePort;
       backlog = options.backlog;
+      // For a unix-socket listen, readableAll/writableAll chmod the socket file
+      // in kRealListen (which runs deferred); stash on the server instance.
+      this._readableAll = options.readableAll;
+      this._writableAll = options.writableAll;
 
       if (typeof options.fd === "number" && options.fd >= 0) {
         fd = options.fd;
@@ -2484,7 +2488,8 @@ Server.prototype.listen = function listen(port, hostname, onListen) {
       onListen,
     );
   } catch (err) {
-    setTimeout(emitErrorNextTick, 1, this, err);
+    const isUnix = path != null;
+    setTimeout(emitErrorNextTick, 1, this, formatListenError(err, isUnix ? path : hostname, isUnix ? undefined : port));
   }
   return this;
 };
@@ -2516,6 +2521,25 @@ Server.prototype[kRealListen] = function (
       socket: ServerHandlers,
       data: this,
     });
+    // Mirror libuv uv_pipe_chmod: readableAll/writableAll relax the unix socket
+    // file's group/other permission bits. Skipped on Windows and abstract
+    // sockets (no filesystem entry). uSockets binds synchronously, so the file
+    // exists by the time Bun.listen returns.
+    // https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/net.js#L1899
+    if ((this._readableAll || this._writableAll) && process.platform !== "win32" && path.charCodeAt(0) !== 0) {
+      let desired = 0;
+      if (this._readableAll) desired |= 0o44; // S_IRGRP | S_IROTH
+      if (this._writableAll) desired |= 0o22; // S_IWGRP | S_IWOTH
+      try {
+        const fs = require("node:fs");
+        const cur = fs.statSync(path).mode;
+        if ((cur & desired) !== desired) fs.chmodSync(path, cur | desired);
+      } catch (e) {
+        this._handle?.close?.();
+        this._handle = null;
+        throw e;
+      }
+    }
   } else if (fd != null) {
     this._handle = Bun.listen({
       fd,
@@ -2748,6 +2772,32 @@ function closeSocketHandle(self, isException, isCleanupPending = false) {
       }
     });
   }
+}
+
+// Reformat a native listen error to Node's "listen <CODE>: <description> <addr>"
+// (Node uses exceptionWithHostPort). Only rewrites known uv codes; the code is
+// already set natively.
+// https://github.com/nodejs/node/blob/614050b657e9757c1097aa85f92f2cb51149dc0d/lib/net.js#L1899
+function uvListenErrorDescription(code) {
+  switch (code) {
+    case "EADDRINUSE":
+      return "address already in use";
+    case "EACCES":
+      return "permission denied";
+    case "EADDRNOTAVAIL":
+      return "address not available";
+    default:
+      return undefined;
+  }
+}
+function formatListenError(err, address, port) {
+  const desc = err && typeof err.code === "string" ? uvListenErrorDescription(err.code) : undefined;
+  if (desc) {
+    err.syscall = "listen";
+    const where = port ? `${address}:${port}` : address;
+    err.message = `listen ${err.code}: ${desc}${where ? ` ${where}` : ""}`;
+  }
+  return err;
 }
 
 function checkBindError(err, port, handle) {
