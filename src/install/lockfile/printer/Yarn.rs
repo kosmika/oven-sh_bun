@@ -11,10 +11,6 @@ use bun_install::PackageID;
 use bun_install::Resolution;
 use bun_install::dependency::{self, Behavior, VersionExt as _};
 use bun_install::lockfile::package;
-// PORT NOTE: `lockfile.packages.slice()` returns
-// `bun_collections::multi_array_list::Slice<Package<_>>`; the `items_<field>()`
-// column accessors are an extension trait (Zig's `slice.items(.field)` is
-// comptime-dispatched, Rust models it as a hand-expanded trait per Package.rs).
 use crate::integrity;
 use crate::lockfile_real::Printer;
 

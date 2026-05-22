@@ -14,13 +14,6 @@ use bun_core::strings;
 
 use crate::{Index, IndexInt, options};
 
-// ──────────────────────────────────────────────────────────────────────────
-// Crate-name shims for the original draft modules. These map the names the
-// draft bodies use (`bun_str`, `bun_fs`, `bun_node_fallbacks`, `bun_output`,
-// `bun_css`) onto the real crates / re-export modules so `use crate::…`
-// resolves. The drafts wrote bare extern-crate paths; modules import from
-// here via `use crate::ungate_support::… as …`.
-// ──────────────────────────────────────────────────────────────────────────
 pub use bun_core as bun_str;
 /// `bun_output` is a thin re-export crate over `bun_core` that isn't a
 /// workspace member yet; alias `bun_core` (which exports `declare_scope!` /
@@ -28,16 +21,6 @@ pub use bun_core as bun_str;
 pub use bun_core as bun_output;
 pub use bun_resolver::fs as bun_fs;
 pub use bun_resolver::node_fallbacks as bun_node_fallbacks;
-/// `bun.perf.trace(...)` lives in `bun_perf`; the drafts wrote
-/// `bun_core::perf::…`, so re-export under that name.
-///
-/// `bun_perf::trace` now takes the generated `PerfEvent` enum (Zig used a
-/// `comptime [:0]const u8` and `@field(PerfEvent, name)`). The Rust generator
-/// hasn't emitted real variants yet (`PerfEvent::_Stub` only), so the bundler
-/// drafts that pass string literals would all be dead names. Shim a
-/// string-taking `trace` here that routes through `_Stub` so call sites stay
-/// 1:1 with the `.zig` literals.
-/// TODO(port): drop once `scripts/generate-perf-trace-events.sh` emits Rust.
 pub mod perf {
     pub use bun_perf::{Ctx, PerfEvent};
 
@@ -47,11 +30,6 @@ pub mod perf {
     }
 }
 
-/// Bundler-facing surface for `bun_css`. Several types carry a `'bump`
-/// lifetime that `Chunk`/`ParseTask` don't yet thread, so this module remains
-/// the canonical re-export point (and adds `CssModuleConfig`/`LayerName`
-/// aliases). Once `Chunk` gains a `'bump` lifetime this collapses to a plain
-/// `pub use ::bun_css`.
 pub mod bun_css {
     // `bun_css` is an UNCONDITIONAL dep (`bun_js_parser` already pulls it in
     // for `BundledAst.css`'s field type). Glob-re-export always.
@@ -68,12 +46,6 @@ pub mod bun_css {
 // Value types extracted from `bundle_v2.zig`.
 // ──────────────────────────────────────────────────────────────────────────
 
-/// `bundle_v2.zig:PartRange`.
-///
-/// PORT NOTE: defined here (not in `bundle_v2`) so `Chunk.rs`
-/// (`parts_in_chunk_in_order: Box<[PartRange]>`) and the `bundle_v2.rs`
-/// `compute_chunks` body that fills it (via `crate::ungate_support::PartRange`)
-/// agree on a single nominal type.
 #[derive(Clone, Copy, Default)]
 pub struct PartRange {
     pub source_index: Index,
@@ -96,12 +68,6 @@ impl StableRef {
     }
 }
 
-// PORT NOTE: `#[repr(packed)]` forbids derived comparison (would take an
-// unaligned `&self.field`). Manual impls copy the packed fields to locals
-// first. Ordering matches `bundle_v2.zig:StableRef.isLessThan` —
-// `(stable_source_index, ref.inner_index)` lexicographic — so
-// `slice.sort_unstable()` reproduces Zig `std.sort.pdq(StableRef, …,
-// isLessThan)` call sites.
 impl PartialEq for StableRef {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -240,11 +206,6 @@ impl CompileResult {
     }
 }
 
-// PORT NOTE: manual `Clone` because `bun_js_printer::PrintResult` doesn't
-// derive it (its fields are all `Clone`-able, so destructure and rebuild).
-// `vec![CompileResult::default(); n]` in `generateChunksInParallel.rs` needs
-// this to pre-size the per-chunk result buffers — Zig used `arena.alloc`
-// (uninit), Rust fills with defaults.
 impl Clone for CompileResult {
     fn clone(&self) -> Self {
         match self {
@@ -303,13 +264,6 @@ impl Default for CompileResult {
     }
 }
 
-/// `bundle_v2.zig:genericPathWithPrettyInitialized`. This assigns a concise,
-/// predictable, and unique `.pretty` attribute to a Path. DevServer relies on
-/// pretty paths for identifying modules, so they must be unique.
-///
-/// PORT NOTE: signature uses `bun_paths::fs::Path<'static>` (= `bun_paths::fs::Path<'static>`,
-/// the type stored on `bun_ast::Source.path`). `dupe_alloc_fix_pretty` interns into
-/// `FilenameStore` (process-static), so the `'static` return is satisfied.
 pub fn generic_path_with_pretty_initialized(
     path: &bun_paths::fs::Path<'static>,
     target: options::Target,
@@ -348,10 +302,6 @@ pub fn generic_path_with_pretty_initialized(
             // the SSR graph needs different pretty names or else HMR mode will
             // confuse the two modules.
             let mut fbs = bun_io::FixedBufferStream::new_mut(&mut buf.0[..]);
-            // PORT NOTE: Zig `bufPrint(buf, "ssr:{s}", .{rel})` writes bytes
-            // verbatim; routing through `bstr::BStr` Display lossily replaces
-            // non-UTF-8 path bytes (legal on Linux) with U+FFFD, corrupting
-            // metafile `inputs` keys / HMR module identity. Write raw bytes.
             let _ = fbs.write_all(b"ssr:");
             let _ = fbs.write_all(rel);
             let written = fbs.pos;
@@ -379,13 +329,6 @@ pub fn generic_path_with_pretty_initialized(
     }
 }
 
-/// `bundle_v2.zig:fmtEscapedNamespace`. Doubles every `:` so a namespace
-/// containing colons cannot collide with the `<ns>:<path>` separator.
-///
-/// PORT NOTE: byte-level `Write::write_all` (not `core::fmt::Display` over
-/// `bstr::BStr`) — Zig `writer.writeAll` emits raw bytes, and plugins may set
-/// arbitrary (non-UTF-8) namespace bytes that `BStr`'s Display would lossily
-/// replace with U+FFFD.
 fn write_escaped_namespace<W: bun_io::Write + ?Sized>(w: &mut W, slice: &[u8]) -> bun_io::Result {
     let mut rest = slice;
     while let Some(i) = strings::index_of_char(rest, b':') {
@@ -448,10 +391,6 @@ impl ContentHasher {
     }
 }
 
-/// `bundle_v2.zig:cheapPrefixNormalizer` — moved down to `bun_string`
-/// (lower-tier crate shared with `css::printer`). Re-exported here so the
-/// existing `crate::cheap_prefix_normalizer` chain in `bundle_v2.rs` and the
-/// bundler call-sites keep working unchanged.
 pub use bun_core::cheap_prefix_normalizer;
 
 /// `bundle_v2.zig:targetFromHashbang`.
@@ -471,12 +410,6 @@ pub fn target_from_hashbang(buffer: &[u8]) -> Option<options::Target> {
 /// non-existent `bun_renamer` crate).
 pub mod bun_renamer {
     pub use bun_js_printer::renamer::*;
-    /// Owned renamer stored on `Chunk.renamer`. The Zig field is the union
-    /// `renamer.Renamer` set late (`= undefined`); the Rust `Renamer<'r,'src>`
-    /// enum has borrowed lifetimes that can't be stored in a 'static-ish
-    /// struct, so this owns the boxed concrete renamer instead and produces a
-    /// borrowed `Renamer` view on demand. TODO(port): thread `'bump` once
-    /// Chunk gains a lifetime.
     #[derive(Default)]
     pub enum ChunkRenamer {
         #[default]
@@ -497,20 +430,12 @@ pub mod bun_renamer {
             match self {
                 ChunkRenamer::None => unreachable!("ChunkRenamer not initialized"),
                 ChunkRenamer::Number(r) => bun_js_printer::renamer::Renamer::NumberRenamer(r),
-                // PORT NOTE: `Renamer<'r,'src>` borrows the concrete renamer
-                // (`&'r mut MinifyRenamer`); `ChunkRenamer` owns the `Box`, so
-                // the deref-coerced `&mut **r` yields a per-call borrowed view
-                // exactly like the Zig tag+ptr union.
                 ChunkRenamer::Minify(r) => bun_js_printer::renamer::Renamer::MinifyRenamer(r),
             }
         }
     }
 }
 
-/// `HTMLImportManifest` — bundler-calling-convention adapter over the real
-/// `crate::HTMLImportManifest` module so `Chunk.rs::IntermediateOutput::code`
-/// can call free functions matching the Zig surface (`std.fmt.count` /
-/// `std.io.fixedBufferStream`).
 pub mod html_import_manifest {
     use crate::Graph::Graph;
     use crate::HTMLImportManifest as real;
@@ -518,10 +443,6 @@ pub mod html_import_manifest {
 
     pub use real::{EscapedJson, HTMLImportManifest};
 
-    /// HTMLImportManifest.zig:116 `formatEscapedJSON` — returns a `Display`
-    /// adapter that writes the manifest JSON, then re-escapes it as a JS string
-    /// literal body (`writePreQuotedString`). Chunk.rs uses this with
-    /// `bun_core::fmt::count` for the counting pass.
     #[inline]
     pub(crate) fn format_escaped_json<'a>(
         index: u32,
@@ -538,10 +459,6 @@ pub mod html_import_manifest {
         .format_escaped_json()
     }
 
-    /// HTMLImportManifest.zig:98 `writeEscapedJSON` — fixed-buffer variant.
-    /// `Chunk.rs` passes a `&mut &mut [u8]` cursor (Zig `fixedBufferStream`);
-    /// route through [`bun_io::FixedBufferStream`] and advance the caller's
-    /// slice in place so it can recover `pos = before_len - cursor.len()`.
     pub fn write_escaped_json(
         index: u32,
         graph: &Graph,
@@ -559,11 +476,6 @@ pub mod html_import_manifest {
     }
 }
 
-/// `HTMLScanner` — re-export of the real un-gated module so
-/// `crate::html_scanner::HTMLScanner` (the path ParseTask imports) resolves to
-/// the lol-html-backed implementation in `HTMLScanner.rs`. The previous local
-/// stub here was a no-op `scan()` that silently dropped every `<script>`/`<link>`
-/// import record; with the real module un-gated there is no reason to shadow it.
 pub use crate::HTMLScanner as html_scanner;
 
 /// `LinkerGraph.zig:JSMeta` / `WrapKind` / `ExportData` — minimal surface so
@@ -583,14 +495,6 @@ pub(crate) use bun_ast::UseDirective;
 /// `bundle_v2.zig:MangledProps`.
 pub use bun_js_printer::MangledProps;
 
-// ──────────────────────────────────────────────────────────────────────────
-// Value-type surface for `LinkerGraph.rs` + `linker_context/scanImportsAndExports.rs`.
-// Real value-type defs extracted from the gated `bundle_v2.rs` draft body
-// (JSMeta, EntryPoint, ImportData, ExportData, …) so those modules can name
-// them at `crate::*`. Once `bundle_v2.rs` un-gates its draft body these
-// collapse to re-exports.
-// ──────────────────────────────────────────────────────────────────────────
-
 /// `bun.logger` — alias used by the original drafts as `crate::bun_ast::Source`.
 
 /// `js_ast.BundledAst` (the bundler-facing AST view).
@@ -606,11 +510,6 @@ pub mod entry_point {
 
     #[derive(Default)]
     pub struct EntryPoint {
-        /// This may be an absolute path or a relative path. If absolute, it will
-        /// eventually be turned into a relative path by computing the path
-        /// relative to the "outbase" directory. Then this relative path will be
-        /// joined onto the "outdir" directory to form the final output path for
-        /// this entry point.
         pub output_path: PathString,
         /// This is the source index of the entry point. This file must have a
         /// valid entry point kind (i.e. not "none").
@@ -630,11 +529,6 @@ pub mod entry_point {
         }
     }
 
-    /// `bundle_v2.zig:EntryPoint.Kind` — inherent associated type so
-    /// `EntryPoint::Kind` resolves at every use-site (the explicit struct
-    /// re-export at the crate root shadows any glob-imported module of the
-    /// same name, so a sibling `mod EntryPoint { … }` is unreachable there).
-    /// Requires `#![feature(inherent_associated_types)]` (enabled in lib.rs).
     impl EntryPoint {
         pub type Kind = Kind;
     }
@@ -719,10 +613,6 @@ pub mod js_meta {
     pub type CjsExportCopies = AstVec<Ref>;
     pub type TopLevelSymbolToParts = bun_ast::ast_result::TopLevelSymbolToParts;
 
-    /// `bundle_v2.zig:JSMeta.Flags` — packed struct(u8). Callers use
-    /// field-style access (`flags.is_async_or_has_async_dependency = true`),
-    /// so this is a plain struct of bools + `wrap` for now; pack into a u8
-    /// once callers move to setters. PERF(port).
     #[derive(Clone, Copy, Default)]
     pub struct Flags {
         pub is_async_or_has_async_dependency: bool,
@@ -794,22 +684,10 @@ pub use js_meta::{
     RefImportData, ResolvedExports, SortedAndFilteredExportAliases, TopLevelSymbolToParts,
 };
 
-// ──────────────────────────────────────────────────────────────────────────
-// Surface for `bundle_v2.rs::on_parse_task_complete`.
-// `` now emits `InputFileColumns` with the full
-// `items_<field>()` / `items_<field>_mut()` set; this alias keeps the old
-// ambiguity (same trait, two names).
-// ──────────────────────────────────────────────────────────────────────────
-
 /// Re-export of the SoA accessor trait so callers can
 /// `use crate::ungate_support::EntryPointColumns as _;`.
 pub use entry_point::EntryPointColumns;
 
-/// `bundle_v2.zig` aliased `EventLoop = bun.jsc.AnyEventLoop`; the bundler only
-/// stores it on `LinkerContext.loop` (already typed there as
-/// `Option<NonNull<()>>` — erased handle) and calls `.tick(...)` from
-/// `wait_for_parse`. Re-export the LinkerContext alias so `bundle_v2.rs` and
-/// `ParseTask.rs` agree on the spelling.
 pub use crate::linker_context_mod::EventLoop;
 
 // crate-private aliases mirroring Zig's `Index.Int` / `Part.List` /

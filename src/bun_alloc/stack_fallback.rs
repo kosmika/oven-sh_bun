@@ -32,18 +32,6 @@ use core::ptr::{self, NonNull};
 
 use crate::{MimallocArena, alloc_result, mimalloc};
 
-/// `std.heap.StackFallbackAllocator(N)` — bump-allocate from an inline
-/// `[u8; N]` stack buffer; spill to `fallback` when it doesn't fit.
-/// `deallocate`/`grow` dispatch by address-range check ([`Self::owns`]).
-///
-/// Lives on the caller's stack frame; single-threaded by construction
-/// (`Cell` ⇒ `!Sync`, so `&StackFallback: !Send` — a `Vec<_, &Self>` cannot
-/// cross threads with a stack pointer inside it).
-///
-/// `N` guidance: default to **1024** for "format a small string / build a
-/// short list" (modal Zig choice; well under the 8 KB Windows `__chkstk`
-/// threshold). **4096** for path-ish buffers. Cap at **16 KB** — anything
-/// larger should go straight to `MimallocArena`/`Global`.
 #[repr(C)] // keep `buf` at a fixed offset; `align_of::<Self>() == align_of::<A>().max(word)`
 pub struct StackFallback<const N: usize, A: Allocator = std::alloc::Global> {
     /// Bump cursor into `buf`. `Cell` so `Allocator::allocate(&self)` can advance it.
@@ -77,11 +65,6 @@ impl<const N: usize, A: Allocator> StackFallback<N, A> {
         }
     }
 
-    /// Zig: `StackFallbackAllocator.get()` — reset the bump region and return
-    /// the allocator handle. Debug-asserts single call (heap.zig:404). In Rust
-    /// the "handle" is just `&self` (blanket `impl Allocator for &Self` below),
-    /// so callers may equivalently write `Vec::new_in(&sf)` directly and skip
-    /// this.
     #[inline]
     pub fn get(&self) -> &Self {
         #[cfg(debug_assertions)]
@@ -284,19 +267,6 @@ unsafe impl<const N: usize, A: Allocator> Allocator for &StackFallback<N, A> {
     }
 }
 
-// ── ArenaPtr ─────────────────────────────────────────────────────────────────
-//
-// `*const MimallocArena` as an [`Allocator`]. Exists so `StackFallback` can
-// borrow a caller-owned `MimallocArena` without a lifetime parameter:
-// `ASTMemoryAllocator` is published into raw thread-locals and may outlive any
-// nameable `'a`, so `&'a MimallocArena` (which already implements `Allocator`)
-// cannot be used directly. The caller guarantees the pointee outlives every
-// allocation — same invariant the `ast_alloc` install/uninstall protocol
-// already requires.
-//
-// `arena == null` routes to global `mi_malloc`/`mi_free`, matching
-// [`crate::ast_alloc::AstAlloc`] when no AST scope is active.
-
 /// Borrowed `*const MimallocArena` as an [`Allocator`]. See section doc above.
 #[derive(Clone, Copy)]
 pub struct ArenaPtr {
@@ -326,11 +296,6 @@ impl ArenaPtr {
     pub fn set_arena(&mut self, arena: *const MimallocArena) {
         self.arena = arena;
     }
-    /// Shared borrow of the wrapped arena, or `None` for the global path.
-    ///
-    /// Single backref-deref site for the `arena: *const MimallocArena` field;
-    /// the [`Allocator`] impl below branches on the result instead of
-    /// open-coding the null-check + raw-pointer deref at every method.
     #[inline]
     fn arena_ref(&self) -> Option<&MimallocArena> {
         // SAFETY: `arena` is either null (→ `None`) or, per [`ArenaPtr::new`]'s
@@ -404,16 +369,6 @@ unsafe impl Allocator for ArenaPtr {
         unsafe { self.grow(ptr, old, new) }
     }
 }
-
-// ── MimallocHeapRef ──────────────────────────────────────────────────────────
-//
-// Thin `Allocator` over a raw `*mut mi_heap_t`. Unlike [`ArenaPtr`] this
-// addresses the C-heap-resident `mi_heap_t` directly (stable across moves of
-// the `MimallocArena` wrapper struct), at the cost of bypassing
-// `MimallocArena::track_alloc`. Kept for callers that only have a heap handle.
-//
-// `heap == null` routes to global `mi_malloc`/`mi_free`, matching
-// [`crate::ast_alloc::AstAlloc`] when no AST scope is active.
 
 /// Borrowed `mi_heap_t*` as an [`Allocator`]. See section doc above.
 #[derive(Clone, Copy)]

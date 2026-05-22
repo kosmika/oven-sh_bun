@@ -22,16 +22,6 @@ pub enum Escaped<T> {
     Allocated(Box<[T]>),
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Shared byte → entity lookup
-// ──────────────────────────────────────────────────────────────────────────
-//
-// These are *lookup only*. Callers keep their own needle set / scan loop and
-// only call here for bytes they have already decided to escape. That way the
-// 3-char SSR attribute path, the 4-char markdown path and the 5-char
-// Bun.escapeHTML path all share one mapping table without changing their
-// output bytes.
-
 /// HTML entity for one byte. `'` → `&#x27;` (numeric — `&apos;` is not in HTML4).
 #[inline(always)]
 pub const fn html_escape_entity(c: u8) -> Option<&'static [u8]> {

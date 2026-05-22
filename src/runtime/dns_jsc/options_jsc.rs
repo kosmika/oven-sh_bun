@@ -10,10 +10,6 @@ use bun_dns::{
     PROTOCOL_MAP, Protocol, ResultAny, SOCKET_TYPE_MAP, SocketType,
 };
 use bun_dns::{addr_info_count, address_to_string};
-// PORT NOTE: Zig's `Options.FromJSError` is the error-set union of all the
-// per-field `Invalid*` variants plus `JSError`. The Rust enum lives in
-// `bun_dns` (which has no `bun_jsc` dep), so the `JsError → JSError` mapping is
-// done locally via the `js()` helper below.
 use bun_dns::OptionsFromJsError as FromJSError;
 
 #[inline]

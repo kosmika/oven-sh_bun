@@ -38,11 +38,6 @@ struct Node {
     /// this joiner (via `push_owned`/`push_cloned`) and is freed on node drop;
     /// when `false`, `slice` is borrowed and the caller guarantees it outlives `done()`.
     owns_slice: bool,
-    // TODO(port): lifetime — borrowed slices must outlive `done()`; the port avoids
-    // struct lifetime params, so this is stored as a typed raw fat pointer.
-    // `RawSlice` (one encapsulated unsafe in `.slice()`) replaces the open-coded
-    // raw deref at every read site; the backing storage outlives the node by
-    // either ownership (`owns_slice`) or caller contract.
     slice: RawSlice<u8>,
 }
 
@@ -113,10 +108,6 @@ impl StringJoiner {
         self.push_owned(Box::from(data));
     }
 
-    // PORT NOTE: Zig signature was `push(data: []const u8, ?Allocator param)`.
-    // The optional allocator only encoded ownership of `data`, which has no Rust
-    // analogue for a borrowed `&[u8]`; callers wanting owned semantics use
-    // `push_owned`/`push_cloned` instead.
     pub fn push(&mut self, data: &[u8]) {
         if data.is_empty() {
             return;
@@ -151,10 +142,6 @@ impl StringJoiner {
         let len = self.len;
         self.len = 0;
 
-        // Zig: `allocator.alloc(u8, this.len)` — allocates uninitialized.
-        // `Vec::with_capacity` + `extend_from_slice` is also zero-fill-free
-        // (each push is a `memcpy` into spare capacity), and since the final
-        // `len == capacity` the `into_boxed_slice` is a no-realloc move.
         let mut out = Vec::<u8>::with_capacity(len);
         for node in self.nodes.drain(..) {
             out.extend_from_slice(node.slice());

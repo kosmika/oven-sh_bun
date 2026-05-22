@@ -6,18 +6,6 @@
 //! where `.0` is the `&[u8]` key and `.1` is the associated value of type `V`.
 // TODO: https://github.com/ziglang/zig/issues/4335
 
-// PORT NOTE: The Zig original is a `fn(comptime KeyType, comptime V, comptime kvs_list) type`
-// that does heavy comptime work: sorts kvs by (len, bytes), builds a `len_indexes` table,
-// then every lookup is an `inline while` over lengths × `inline for` over same-length keys
-// with `eqlComptime` (length-known SIMD compare). Rust cannot replicate the per-callsite
-// monomorphization without a proc-macro, so this models it as a const-constructed struct
-// holding the precomputed tables plus a `comptime_string_map!` macro that callers use.
-// Runtime loops replace `inline for`/`inline while`; each is tagged `PERF(port)`.
-//
-// Per PORTING.md crate-map, downstream callers of `bun.ComptimeStringMap(V, .{...})` should
-// prefer `phf::phf_map!` directly when they only need `.get()`/`.has()`. This struct exists
-// for the call sites that need `get_with_eql` / `get_any_case` / `index_of` / `get_key`.
-
 // TODO(port): `strings` arrives in bun_core via move-in (was bun_core::strings — same-tier cycle).
 use bun_core::strings;
 
@@ -85,12 +73,6 @@ where
     K: Copy + Eq + Ord + 'static,
     V: Copy + 'static,
 {
-    /// Builds the precomputed tables. Called by the `comptime_string_map!` macro.
-    ///
-    /// Mirrors the `comptime blk:` in the Zig: sort by (len asc, bytes asc), then
-    /// fill `len_indexes[len]` = first index whose key.len >= len.
-    // TODO(port): make this a `const fn` once const-sort is stable, or move to build.rs.
-    // PERF(port): Zig did this at comptime (zero runtime cost); this runs once at init.
     pub fn new(mut sorted_kvs: [KV<K, V>; N]) -> Self {
         // lenAsc comparator
         sorted_kvs.sort_by(|a, b| {
@@ -139,11 +121,6 @@ where
         self.get(str).is_some()
     }
 
-    /// Contiguous range in `kvs` whose keys have exactly `len`.
-    ///
-    /// PORT NOTE: the .zig spec open-coded this at every lookup site because `len` was
-    /// `comptime` there and each needed its own `comptime brk:` block. In the Rust port
-    /// `len` is runtime, so the duplication is vestigial — extract once and inline.
     #[inline(always)]
     fn len_bucket(&self, len: usize) -> core::ops::Range<usize> {
         let start = self.len_indexes[len];
@@ -238,11 +215,6 @@ where
         (start..end).find(|&i| str == self.kvs[i].key)
     }
 
-    // TODO(port): move to *_jsc — `fromJS` / `fromJSCaseInsensitive` were thin shims to
-    // `jsc/comptime_string_map_jsc.zig`. In Rust these become extension-trait methods in
-    // `bun_jsc` (e.g. `impl<V> ComptimeStringMapJsc for ComptimeStringMap<V, ..>`).
-    // The base `bun_collections` crate has no JSC dependency.
-
     pub fn get_with_eql<I>(&self, input: I, eql: impl Fn(I, &'static [K]) -> bool) -> Option<V>
     where
         I: Copy + HasLength,
@@ -303,10 +275,6 @@ where
     }
 
     pub fn get_asciii_case_insensitive(&self, input: &[u8]) -> Option<V> {
-        // PORT NOTE: Zig name has triple-I (`getASCIIICaseInsensitive`); preserved per
-        // "match fn names" rule. Body is identical to `get_any_case` — both lowercase
-        // ASCII into a stack buffer then dispatch via eql_comptime_ignore_len. Zig
-        // duplicates them too (comptime_string_map.zig:212/256); we dedup here.
         self.get_any_case(input)
     }
 
@@ -347,19 +315,6 @@ where
     }
 }
 
-/// Build a `ComptimeStringMap<V, N, LEN_TABLE>` from `(key, value)` pairs.
-///
-/// ```ignore
-/// static MAP: ComptimeStringMap<TestEnum, 5, 9> = comptime_string_map!(TestEnum, [
-///     (b"these", TestEnum::D),
-///     (b"have", TestEnum::A),
-///     ...
-/// ]);
-/// ```
-// TODO(port): proc-macro — Zig sorted + built len_indexes at comptime. A `macro_rules!`
-// cannot sort; either (a) require callers pre-sort and compute LEN_TABLE, (b) use a
-// proc-macro, or (c) lazy-init via `once_cell::Lazy` + `ComptimeStringMapWithKeyType::new`.
-// Currently uses (c) for correctness; could upgrade to a proc-macro for true const.
 #[macro_export]
 macro_rules! comptime_string_map {
     ($V:ty, [ $( ($key:expr, $val:expr) ),* $(,)? ]) => {{
