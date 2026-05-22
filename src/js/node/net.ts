@@ -585,8 +585,10 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
     if (self.pauseOnConnect) {
       self.pause();
     }
-    if (self[kupgraded]) {
-      self.connecting = false;
+    // Offer a previously-negotiated session for resumption. The native open
+    // dispatch runs before the ClientHello is sent, so this is the last point
+    // at which SSL_set_session can still influence the handshake.
+    {
       const options = self[bunTLSConnectOptions];
       if (options) {
         const { session } = options;
@@ -594,6 +596,9 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
           self.setSession(session);
         }
       }
+    }
+    if (self[kupgraded]) {
+      self.connecting = false;
       SocketHandlers2.drain!(socket);
     }
   },
