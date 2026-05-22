@@ -96,6 +96,14 @@ mod _impl {
         pub pending_reset: Cell<bool>,
         pub closed: Cell<bool>,
         pub task: JsCell<WorkPoolTask>,
+        // JS ArrayBuffers pinned so `.transfer()` can't free their backing
+        // store while native code holds a raw pointer into them. `in`/`out`
+        // are per-write (async path only); `write_state` lives for the
+        // stream's lifetime; `dictionary` is unused for brotli (always ZERO).
+        pub pinned_in: Cell<JSValue>,
+        pub pinned_out: Cell<JSValue>,
+        pub pinned_write_state: Cell<JSValue>,
+        pub pinned_dictionary: Cell<JSValue>,
     }
 
     // `const impl = CompressionStream(@This())` — Zig mixin that provides
@@ -157,6 +165,10 @@ mod _impl {
                     node: Default::default(),
                     callback: noop_task_callback,
                 }),
+                pinned_in: Cell::new(JSValue::ZERO),
+                pinned_out: Cell::new(JSValue::ZERO),
+                pinned_write_state: Cell::new(JSValue::ZERO),
+                pinned_dictionary: Cell::new(JSValue::ZERO),
             }))
         }
 
@@ -191,6 +203,10 @@ mod _impl {
             // this does not get gc'd because it is stored in the JS object's
             // `this._writeState`. and the JS object is tied to the native handle
             // as `_handle[owner_symbol]`.
+            // Pin BEFORE reading the pointer: for a small `FastTypedArray` (the
+            // 8-byte `_writeState`) pinning relocates storage; reading after pin
+            // gives the stable address, and `.transfer()` can no longer free it.
+            CompressionStream::<Self>::pin_write_state(self, arguments.ptr[1]);
             let write_result = arguments.ptr[1]
                 .as_array_buffer(global_this)
                 .unwrap()

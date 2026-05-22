@@ -51,6 +51,14 @@ mod _impl {
         pub pending_reset: Cell<bool>,
         pub closed: Cell<bool>,
         pub task: JsCell<WorkPoolTask>,
+        // JS ArrayBuffers pinned so `.transfer()` can't free their backing
+        // store while native code holds a raw pointer into them. `in`/`out`
+        // are per-write (async path only); `write_state` lives for the
+        // stream's lifetime; `dictionary` is unused for zstd (always ZERO).
+        pub pinned_in: Cell<JSValue>,
+        pub pinned_out: Cell<JSValue>,
+        pub pinned_write_state: Cell<JSValue>,
+        pub pinned_dictionary: Cell<JSValue>,
     }
 
     // `pub const ref/deref = RefCount.ref/deref;` — wired via `CompressionStreamImpl::{ref_,deref}`
@@ -114,6 +122,10 @@ mod _impl {
                     node: Default::default(),
                     callback: unset_task_callback,
                 }),
+                pinned_in: Cell::new(JSValue::ZERO),
+                pinned_out: Cell::new(JSValue::ZERO),
+                pinned_write_state: Cell::new(JSValue::ZERO),
+                pinned_dictionary: Cell::new(JSValue::ZERO),
             }))
         }
 
@@ -146,6 +158,10 @@ mod _impl {
             let write_state_value = arguments[2];
             let process_callback_value = arguments[3];
 
+            // Pin BEFORE reading the pointer: for a small `FastTypedArray` (the
+            // 8-byte `_writeState`) pinning relocates storage; reading after pin
+            // gives the stable address, and `.transfer()` can no longer free it.
+            CompressionStream::<Self>::pin_write_state(self, write_state_value);
             let Some(mut write_state) = write_state_value.as_array_buffer(global) else {
                 return Err(global.throw_invalid_argument_type_value(
                     "writeState",

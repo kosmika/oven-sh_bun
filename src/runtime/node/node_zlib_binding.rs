@@ -75,6 +75,18 @@ impl Error {
 
 // ─── local shims (upstream-crate gaps) ────────────────────────────────────
 
+// Pin/unpin a JS ArrayBuffer (or view) so its backing store cannot be freed
+// via `.transfer()`/`structuredClone` while native code holds a raw pointer
+// into it. `pin` is a no-op on SharedArrayBuffer. For a small `FastTypedArray`
+// view, `pin` calls `possiblySharedBuffer()` which relocates storage, so
+// callers MUST pin BEFORE reading `as_array_buffer()`/`byte_slice()`.
+unsafe extern "C" {
+    /// By-value `JSValue`; C++ side null-checks and reads its own heap state.
+    /// No caller-side preconditions → `safe fn`.
+    pub safe fn JSC__JSValue__pinArrayBuffer(v: JSValue) -> bool;
+    pub safe fn JSC__JSValue__unpinArrayBuffer(v: JSValue);
+}
+
 /// Local `JSValue::toU32` shim — `bun_jsc::JSValue` doesn't expose `to_u32()`
 /// in this crate's view yet; mirror Zig's `@intFromFloat(value.asNumber())`.
 #[inline]
@@ -250,6 +262,13 @@ pub trait CompressionStreamImpl: Sized + Taskable + 'static {
     fn pending_close(&self) -> &Cell<bool>;
     fn pending_reset(&self) -> &Cell<bool>;
     fn closed(&self) -> &Cell<bool>;
+    /// In/out ArrayBuffers pinned for the duration of one async `write()`.
+    fn pinned_in(&self) -> &Cell<JSValue>;
+    fn pinned_out(&self) -> &Cell<JSValue>;
+    /// `_writeState`/`dictionary` ArrayBuffers pinned for the stream's
+    /// lifetime (set in `init()`, released in `close_internal()`).
+    fn pinned_write_state(&self) -> &Cell<JSValue>;
+    fn pinned_dictionary(&self) -> &Cell<JSValue>;
 
     /// Recover `*mut Self` from the embedded `WorkPoolTask`.
     /// SAFETY: caller guarantees `task` points at the `task` field of a live `Self`.
@@ -281,6 +300,48 @@ pub trait CompressionStreamImpl: Sized + Taskable + 'static {
 }
 
 impl<T: CompressionStreamImpl> CompressionStream<T> {
+    /// Unpin whichever of the per-write in/out ArrayBuffers are set. Idempotent
+    /// (each cell is cleared on first call). JS-thread-only.
+    fn release_pinned(this: &T) {
+        let v = this.pinned_in().replace(JSValue::ZERO);
+        if !v.is_empty() {
+            JSC__JSValue__unpinArrayBuffer(v);
+        }
+        let v = this.pinned_out().replace(JSValue::ZERO);
+        if !v.is_empty() {
+            JSC__JSValue__unpinArrayBuffer(v);
+        }
+    }
+
+    /// Pin `v` and stash it in `pinned_write_state` so `close_internal()` can
+    /// unpin. Called from each `Native*::init()` BEFORE the write-state
+    /// `Uint32Array`'s backing pointer is read (pinning may relocate storage
+    /// for a `FastTypedArray`).
+    pub fn pin_write_state(this: &T, v: JSValue) {
+        JSC__JSValue__pinArrayBuffer(v);
+        this.pinned_write_state().set(v);
+    }
+
+    /// Pin `v` and stash it in `pinned_dictionary` (zlib only).
+    pub fn pin_dictionary(this: &T, v: JSValue) {
+        JSC__JSValue__pinArrayBuffer(v);
+        this.pinned_dictionary().set(v);
+    }
+
+    /// Unpin the lifetime-scoped buffers (`_writeState` + `dictionary`).
+    /// Idempotent. JS-thread-only — called from `close_internal()` while the
+    /// JS wrapper (and hence the stashed JSValues) is known-live.
+    fn release_lifetime_pinned(this: &T) {
+        let v = this.pinned_write_state().replace(JSValue::ZERO);
+        if !v.is_empty() {
+            JSC__JSValue__unpinArrayBuffer(v);
+        }
+        let v = this.pinned_dictionary().replace(JSValue::ZERO);
+        if !v.is_empty() {
+            JSC__JSValue__unpinArrayBuffer(v);
+        }
+    }
+
     pub fn write(
         this: &T,
         global_this: &JSGlobalObject,
@@ -322,73 +383,7 @@ impl<T: CompressionStreamImpl> CompressionStream<T> {
                 .throw());
         }
 
-        // Hoisted so `in_` can borrow it past the `else` arm (mirrors `out_buf`).
-        let in_buf: jsc::ArrayBuffer;
-        if arguments[1].is_null() {
-            // just a flush
-            in_ = None;
-            in_len = 0;
-            in_off = 0;
-        } else {
-            in_buf = match arguments[1].as_array_buffer(global_this) {
-                Some(b) => b,
-                None => {
-                    return Err(global_this
-                        .err(
-                            ErrorCode::INVALID_ARG_TYPE,
-                            format_args!("The \"in\" argument must be a TypedArray or DataView"),
-                        )
-                        .throw());
-                }
-            };
-            in_off = jsv_to_u32(arguments[2]);
-            in_len = jsv_to_u32(arguments[3]);
-            if in_buf.byte_len < in_off as usize + in_len as usize {
-                return Err(global_this
-                    .err(
-                        ErrorCode::OUT_OF_RANGE,
-                        format_args!(
-                            "in_off + in_len ({}) exceeds input buffer length ({})",
-                            in_off as usize + in_len as usize,
-                            in_buf.byte_len,
-                        ),
-                    )
-                    .throw());
-            }
-            // Bounds checked above; `byte_slice` is the safe accessor for the JS
-            // ArrayBuffer's backing store (rooted via `arguments[1]` on the call stack).
-            in_ = Some(&in_buf.byte_slice()[in_off as usize..in_off as usize + in_len as usize]);
-        }
-
-        let Some(mut out_buf) = arguments[4].as_array_buffer(global_this) else {
-            return Err(global_this
-                .err(
-                    ErrorCode::INVALID_ARG_TYPE,
-                    format_args!("The \"out\" argument must be a TypedArray or DataView"),
-                )
-                .throw());
-        };
-        let out_off: u32 = jsv_to_u32(arguments[5]);
-        let out_len: u32 = jsv_to_u32(arguments[6]);
-        if out_buf.byte_len < out_off as usize + out_len as usize {
-            return Err(global_this
-                .err(
-                    ErrorCode::OUT_OF_RANGE,
-                    format_args!(
-                        "out_off + out_len ({}) exceeds output buffer length ({})",
-                        out_off as usize + out_len as usize,
-                        out_buf.byte_len,
-                    ),
-                )
-                .throw());
-        }
-        // Bounds checked above; `byte_slice_mut` is the safe accessor for the JS
-        // ArrayBuffer's backing store (rooted via `arguments[4]` on the call stack).
-        let out: Option<&mut [u8]> = Some(
-            &mut out_buf.byte_slice_mut()[out_off as usize..out_off as usize + out_len as usize],
-        );
-        let _ = (in_off, in_len, out_off, out_len);
-
+        // Checked before pinning so no early return after a pin needs cleanup.
         if this.write_in_progress().get() {
             return Err(global_this
                 .err(
@@ -402,6 +397,87 @@ impl<T: CompressionStreamImpl> CompressionStream<T> {
                 .err(ErrorCode::INVALID_STATE, format_args!("Pending close"))
                 .throw());
         }
+
+        // Hoisted so `in_` can borrow it past the `else` arm (mirrors `out_buf`).
+        let in_buf: jsc::ArrayBuffer;
+        if arguments[1].is_null() {
+            // just a flush
+            in_ = None;
+            in_len = 0;
+            in_off = 0;
+        } else {
+            // Pin BEFORE reading the pointer: see `JSC__JSValue__pinArrayBuffer`
+            // comment above. `as_array_buffer` failing after a pin is fine — the
+            // C++ side no-ops on non-buffers, so no unpin is needed.
+            JSC__JSValue__pinArrayBuffer(arguments[1]);
+            this.pinned_in().set(arguments[1]);
+            in_buf = match arguments[1].as_array_buffer(global_this) {
+                Some(b) => b,
+                None => {
+                    Self::release_pinned(this);
+                    return Err(global_this
+                        .err(
+                            ErrorCode::INVALID_ARG_TYPE,
+                            format_args!("The \"in\" argument must be a TypedArray or DataView"),
+                        )
+                        .throw());
+                }
+            };
+            in_off = jsv_to_u32(arguments[2]);
+            in_len = jsv_to_u32(arguments[3]);
+            if in_buf.byte_len < in_off as usize + in_len as usize {
+                Self::release_pinned(this);
+                return Err(global_this
+                    .err(
+                        ErrorCode::OUT_OF_RANGE,
+                        format_args!(
+                            "in_off + in_len ({}) exceeds input buffer length ({})",
+                            in_off as usize + in_len as usize,
+                            in_buf.byte_len,
+                        ),
+                    )
+                    .throw());
+            }
+            // Bounds checked above; `byte_slice` is the safe accessor for the JS
+            // ArrayBuffer's backing store (rooted via `arguments[1]` on the call
+            // stack and pinned so it cannot be freed by `.transfer()` mid-work).
+            in_ = Some(&in_buf.byte_slice()[in_off as usize..in_off as usize + in_len as usize]);
+        }
+
+        JSC__JSValue__pinArrayBuffer(arguments[4]);
+        this.pinned_out().set(arguments[4]);
+        let Some(mut out_buf) = arguments[4].as_array_buffer(global_this) else {
+            Self::release_pinned(this);
+            return Err(global_this
+                .err(
+                    ErrorCode::INVALID_ARG_TYPE,
+                    format_args!("The \"out\" argument must be a TypedArray or DataView"),
+                )
+                .throw());
+        };
+        let out_off: u32 = jsv_to_u32(arguments[5]);
+        let out_len: u32 = jsv_to_u32(arguments[6]);
+        if out_buf.byte_len < out_off as usize + out_len as usize {
+            Self::release_pinned(this);
+            return Err(global_this
+                .err(
+                    ErrorCode::OUT_OF_RANGE,
+                    format_args!(
+                        "out_off + out_len ({}) exceeds output buffer length ({})",
+                        out_off as usize + out_len as usize,
+                        out_buf.byte_len,
+                    ),
+                )
+                .throw());
+        }
+        // Bounds checked above; `byte_slice_mut` is the safe accessor for the JS
+        // ArrayBuffer's backing store (rooted via `arguments[4]` on the call
+        // stack and pinned so it cannot be freed by `.transfer()` mid-work).
+        let out: Option<&mut [u8]> = Some(
+            &mut out_buf.byte_slice_mut()[out_off as usize..out_off as usize + out_len as usize],
+        );
+        let _ = (in_off, in_len, out_off, out_len);
+
         this.write_in_progress().set(true);
         this.ref_();
 
@@ -492,6 +568,10 @@ impl<T: CompressionStreamImpl> CompressionStream<T> {
         // call them explicitly on every return path.
 
         this.write_in_progress().set(false);
+        // Worker's `do_work()` has completed; the raw pointers into the in/out
+        // ArrayBuffers are no longer live, so release the pins taken in
+        // `write()`. Runs before every return below → unpinned exactly once.
+        Self::release_pinned(&this);
 
         // Clear the strong handle before we call any callbacks.
         let Some(this_value) = this.this_value().with_mut(|v| v.try_swap()) else {
@@ -718,6 +798,7 @@ impl<T: CompressionStreamImpl> CompressionStream<T> {
         this.closed().set(true);
         this.this_value().with_mut(|v| v.deinit());
         this.stream().with_mut(|s| s.close());
+        Self::release_lifetime_pinned(this);
     }
 
     pub fn set_on_error(
@@ -985,6 +1066,10 @@ macro_rules! __impl_compression_stream {
             #[inline] fn pending_close(&self) -> &::core::cell::Cell<bool> { &self.pending_close }
             #[inline] fn pending_reset(&self) -> &::core::cell::Cell<bool> { &self.pending_reset }
             #[inline] fn closed(&self) -> &::core::cell::Cell<bool> { &self.closed }
+            #[inline] fn pinned_in(&self) -> &::core::cell::Cell<::bun_jsc::JSValue> { &self.pinned_in }
+            #[inline] fn pinned_out(&self) -> &::core::cell::Cell<::bun_jsc::JSValue> { &self.pinned_out }
+            #[inline] fn pinned_write_state(&self) -> &::core::cell::Cell<::bun_jsc::JSValue> { &self.pinned_write_state }
+            #[inline] fn pinned_dictionary(&self) -> &::core::cell::Cell<::bun_jsc::JSValue> { &self.pinned_dictionary }
 
             #[inline]
             unsafe fn from_task(task: *mut ::bun_jsc::WorkPoolTask) -> *mut Self {
