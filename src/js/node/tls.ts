@@ -10,6 +10,7 @@ const {
   validateString,
   validateNumber,
   validateInt32,
+  validateUint32,
   validateBuffer,
   validateFunction,
 } = require("internal/validators");
@@ -881,6 +882,15 @@ TLSSocket.prototype.getTLSTicket = function getTLSTicket() {
 };
 
 TLSSocket.prototype.exportKeyingMaterial = function exportKeyingMaterial(length, label, context) {
+  // https://github.com/nodejs/node/blob/v25.2.1/lib/internal/tls/wrap.js#L1039
+  validateUint32(length, "length", true);
+  validateString(label, "label");
+  if (context !== undefined) validateBuffer(context, "context");
+
+  if (!this._secureEstablished) {
+    throw $ERR_TLS_INVALID_STATE();
+  }
+
   if (context) {
     return this._handle?.exportKeyingMaterial?.(length, label, context);
   }

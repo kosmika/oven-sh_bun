@@ -2442,6 +2442,8 @@ JSC_DEFINE_HOST_FUNCTION(Bun::jsFunctionMakeErrorWithCode, (JSC::JSGlobalObject 
         return JSC::JSValue::encode(createError(globalObject, ErrorCode::ERR_TLS_CERT_ALTNAME_FORMAT, "Invalid subject alternative name string"_s));
     case ErrorCode::ERR_TLS_SNI_FROM_SERVER:
         return JSC::JSValue::encode(createError(globalObject, ErrorCode::ERR_TLS_SNI_FROM_SERVER, "Cannot issue SNI from a TLS server-side socket"_s));
+    case ErrorCode::ERR_TLS_INVALID_STATE:
+        return JSC::JSValue::encode(createError(globalObject, ErrorCode::ERR_TLS_INVALID_STATE, "TLS socket connection must be securely established"_s));
     case ErrorCode::ERR_INVALID_URI:
         return JSC::JSValue::encode(createError(globalObject, ErrorCode::ERR_INVALID_URI, "URI malformed"_s));
     case ErrorCode::ERR_HTTP2_PSEUDOHEADER_NOT_ALLOWED:
