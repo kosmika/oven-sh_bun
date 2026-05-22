@@ -600,16 +600,11 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
     if (err) $debug(err);
     if (self[kclosed]) return;
     self[kclosed] = true;
-    // A received RST surfacing as ECONNRESET with the close is not a clean
-    // EOF — Node destroys the socket with "read ECONNRESET" instead of a
-    // graceful 'end'. Only a genuine reset is surfaced here: self-initiated
-    // closes can deliver an artifact error for a socket whose owner isn't the
-    // one being destroyed (e.g. the raw socket handed off during a TLS
-    // upgrade), and those must keep ending cleanly.
-    if (err && err.code === "ECONNRESET" && !self.destroyed) {
-      self.destroy(new ConnResetException("read ECONNRESET"));
-      return;
-    }
+    // TODO: surface a received RST here as 'read ECONNRESET' like Node does for
+    // outgoing sockets. The accepted-socket path already does; doing it here
+    // needs the close to be attributable to the socket's current handle first
+    // (connection attempts that lost the race and sockets handed off during a
+    // TLS upgrade also report errors on close).
     self[kended] = true;
     if (!self.allowHalfOpen) self.write = writeAfterFIN;
     self.push(null);
@@ -695,11 +690,12 @@ function kConnectTcp(self, addressType, req, address, port) {
     hostname: address,
     port,
     ipv6Only: addressType === 6,
-    // The native socket's half-open flag follows the Duplex's allowHalfOpen
-    // (default false closes on peer FIN so 'close' fires; true keeps the
-    // writable side open and lets the JS stream drive auto-end), matching
-    // Node where libuv sockets are half-open and the stream layer decides.
-    allowHalfOpen: self.allowHalfOpen,
+    // The native socket is always half-open: closing it on the peer's FIN
+    // would discard whatever is still buffered on the writable side. The
+    // stream layer implements allowHalfOpen=false (onSocketEnd ends the
+    // writable side, which flushes, sends FIN and destroys), matching Node
+    // where libuv sockets are half-open and the stream layer decides.
+    allowHalfOpen: true,
     tls: req.tls,
     data: { self, req },
     socket: self[khandlers],
@@ -716,7 +712,8 @@ function kConnectPipe(self, req, address) {
   const promise = doConnect(self._handle, {
     hostname: address,
     unix: address,
-    allowHalfOpen: self.allowHalfOpen,
+    // Always half-open natively; see kConnect.
+    allowHalfOpen: true,
     tls: req.tls,
     data: { self, req },
     socket: self[khandlers],
@@ -964,7 +961,8 @@ Socket.prototype.connect = function connect(...args) {
         data: this,
         fd: fd,
         socket: SocketHandlers,
-        allowHalfOpen: this.allowHalfOpen,
+        // Always half-open natively; see kConnect.
+        allowHalfOpen: true,
       }).catch(error => {
         if (!this.destroyed) {
           this.emit("error", error);
@@ -2551,9 +2549,10 @@ Server.prototype[kRealListen] = function (
     this._handle = Bun.listen({
       unix: path,
       tls,
-      // The native socket's half-open flag follows the server's allowHalfOpen
+      // Accepted sockets are always half-open natively; the stream layer
+      // implements allowHalfOpen=false (see kConnect / onSocketEnd).
       // and is also propagated to the per-connection Duplex in onconnection.
-      allowHalfOpen: this.allowHalfOpen,
+      allowHalfOpen: true,
       reusePort: reusePort || this[bunSocketServerOptions]?.reusePort || false,
       ipv6Only: ipv6Only || this[bunSocketServerOptions]?.ipv6Only || false,
       exclusive: exclusive || this[bunSocketServerOptions]?.exclusive || false,
@@ -2585,7 +2584,7 @@ Server.prototype[kRealListen] = function (
       fd,
       hostname,
       tls,
-      allowHalfOpen: this.allowHalfOpen,
+      allowHalfOpen: true,
       reusePort: reusePort || this[bunSocketServerOptions]?.reusePort || false,
       ipv6Only: ipv6Only || this[bunSocketServerOptions]?.ipv6Only || false,
       exclusive: exclusive || this[bunSocketServerOptions]?.exclusive || false,
@@ -2597,7 +2596,7 @@ Server.prototype[kRealListen] = function (
       port,
       hostname,
       tls,
-      allowHalfOpen: this.allowHalfOpen,
+      allowHalfOpen: true,
       reusePort: reusePort || this[bunSocketServerOptions]?.reusePort || false,
       ipv6Only: ipv6Only || this[bunSocketServerOptions]?.ipv6Only || false,
       exclusive: exclusive || this[bunSocketServerOptions]?.exclusive || false,
