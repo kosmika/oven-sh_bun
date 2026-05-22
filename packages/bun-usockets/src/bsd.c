@@ -1261,6 +1261,10 @@ LIBUS_SOCKET_DESCRIPTOR bsd_create_listen_socket_unix(const char *path, size_t l
     struct sockaddr_un server_address;
     size_t addrlen = 0;
     if (bsd_create_unix_socket_address(path, len, &dirfd_workaround_for_unix_path_len, &server_address, &addrlen)) {
+        /* The path could not be expressed as a sockaddr_un (the basename
+         * exceeds sun_path even with the dirfd workaround); surface the errno
+         * so the caller can report something better than a codeless failure. */
+        if (error && errno) *error = errno;
         return LIBUS_SOCKET_ERROR;
     }
 

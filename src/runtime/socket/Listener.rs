@@ -476,6 +476,13 @@ impl Listener {
                 bstr::BStr::new(hostname_bytes)
             ));
             log!("Failed to listen {}", errno);
+            // libuv reports UV_EINVAL for a pipe path it cannot express in a
+            // sockaddr_un, which is what Node surfaces for an over-long path.
+            let errno = if errno == bun_sys::SystemErrno::ENAMETOOLONG as c_int {
+                bun_sys::SystemErrno::EINVAL as c_int
+            } else {
+                errno
+            };
             if errno != 0 {
                 err.put(
                     global,
@@ -1524,7 +1531,10 @@ fn connect_finish<const IS_SSL: bool>(
             // connecting to an existing non-socket file is ENOTSOCK, a
             // permission-denied path is EACCES, a missing one is ENOENT.
             let os_errno = bun_sys::last_errno();
-            if os_errno != 0 {
+            if os_errno == bun_sys::SystemErrno::ENAMETOOLONG as c_int {
+                // libuv reports UV_EINVAL for a pipe path it cannot express.
+                bun_sys::SystemErrno::EINVAL as c_int
+            } else if os_errno != 0 {
                 os_errno
             } else {
                 bun_sys::SystemErrno::ENOENT as c_int
