@@ -750,11 +750,12 @@ function TLSSocket(socket?, options?) {
 $toClass(TLSSocket, "TLSSocket", NetSocket);
 
 TLSSocket.prototype._destroySSL = function _destroySSL() {
-  // Releases the TLS state for this socket (Node frees the SSL structure
-  // here); the connection itself is torn down by the caller.
+  // Releases the TLS state for this socket; the connection itself is torn
+  // down by the caller (Node's callers always destroy() right after). The
+  // native socket frees its SSL when it closes, so there is nothing to free
+  // separately here.
   this.secureConnecting = false;
   this._secureEstablished = false;
-  this._handle?.close?.();
 };
 
 TLSSocket.prototype._start = function _start() {
