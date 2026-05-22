@@ -301,7 +301,20 @@ function SocketEmitEndNT(self, _err?) {
   // ("read ECONNRESET") instead of emitting a graceful 'end'. Guard on
   // !destroyed so an already-torn-down socket isn't re-destroyed.
   if (_err && !self.destroyed) {
-    self.destroy(_err.code === "ECONNRESET" ? new ConnResetException("read ECONNRESET") : _err);
+    if (_err.code === "ECONNRESET") {
+      // Shape the reset like Node's errnoException(UV_ECONNRESET, 'read'):
+      // message "read ECONNRESET" with errno/syscall/code all populated.
+      const er = new ConnResetException("read ECONNRESET") as Error & {
+        code: string;
+        errno?: number;
+        syscall?: string;
+      };
+      er.errno = _err.errno;
+      er.syscall = "read";
+      self.destroy(er);
+    } else {
+      self.destroy(_err);
+    }
     return;
   }
   if (!self[kended]) {
@@ -1246,7 +1259,7 @@ Socket.prototype._destroy = function _destroy(err, callback) {
     callback(err);
   } else {
     callback(err);
-    process.nextTick(emitCloseNT, this, false);
+    process.nextTick(emitCloseNT, this, !!err);
   }
 
   if (this.server) {
@@ -1317,10 +1330,10 @@ Socket.prototype.pause = function pause() {
 };
 
 // Server-side TLS upgrade over an accepted socket, for
-// `new tls.TLSSocket(socket, { isServer: true })`. Uses the native upgradeTLS
-// (fd-driven accept-state handshake — server-capable now that us_socket_adopt_tls
-// takes is_client). Lives here, not tls.ts, to reach the module-private kupgraded
-// and ServerHandlers — the single shared server handler table, with per-socket
+// `new tls.TLSSocket(socket, { isServer: true })`. Adopts the connection's fd
+// into an accept-state TLS socket (us_socket_adopt_tls with is_client=0) so the
+// native read path drives the handshake. Lives here, not tls.ts, to reach
+// ServerHandlers — the shared accepted-socket handler table, with per-socket
 // state carried via `data` (mirrors tls.createServer's one-handler-for-all model).
 Socket.prototype[Symbol.for("::bunUpgradeServerTLS::")] = function (connection, tls) {
   const socket = connection._handle;
@@ -1329,10 +1342,15 @@ Socket.prototype[Symbol.for("::bunUpgradeServerTLS::")] = function (connection, 
     throw new Error("Invalid socket");
   }
   this[kupgraded] = connection;
+  // Bytes that already arrived before the wrap (e.g. the ClientHello) were
+  // pulled off the fd into the connection's readable buffer; hand them to the
+  // TLS engine so the handshake doesn't stall.
+  const pending = connection.read();
   const result = socket.upgradeTLS({
     data: this,
     tls,
     socket: ServerHandlers,
+    initialData: pending || undefined,
   });
   if (!result) {
     this._handle = null;
@@ -2457,6 +2475,8 @@ Server.prototype.listen = function listen(port, hostname, onListen) {
         // out-of-range/non-numeric values; a valid port takes precedence over path.
         validatePort(port, "options.port");
         port = port | 0;
+        // A valid port takes precedence over `path` (Node listens on TCP when both are given).
+        path = undefined;
       } else if (isPipeName(path)) {
         const isAbstractPath = path.startsWith("\0");
         if (isLinux && isAbstractPath && (options.writableAll || options.readableAll)) {
@@ -2598,8 +2618,7 @@ Server.prototype[kRealListen] = function (
       tls,
       // Accepted sockets are always half-open natively; the stream layer
       // implements allowHalfOpen=false (see kConnect / onSocketEnd).
-      // and is also propagated to the per-connection Duplex in onconnection.
-      allowHalfOpen: true,
+          allowHalfOpen: true,
       reusePort: reusePort || this[bunSocketServerOptions]?.reusePort || false,
       ipv6Only: ipv6Only || this[bunSocketServerOptions]?.ipv6Only || false,
       exclusive: exclusive || this[bunSocketServerOptions]?.exclusive || false,

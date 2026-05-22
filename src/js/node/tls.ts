@@ -240,9 +240,6 @@ function getSecureProtocolMethods() {
       "TLSv1_2_method",
       "TLSv1_2_client_method",
       "TLSv1_2_server_method",
-      "TLSv1_3_method",
-      "TLSv1_3_client_method",
-      "TLSv1_3_server_method",
     ]);
   }
   return _SECURE_PROTOCOL_METHODS;
@@ -560,12 +557,6 @@ function secureProtocolToVersionRange(secureProtocol) {
     secureProtocol === "TLSv1_2_server_method"
   )
     return [TLS1_2_VERSION, TLS1_2_VERSION];
-  if (
-    secureProtocol === "TLSv1_3_method" ||
-    secureProtocol === "TLSv1_3_client_method" ||
-    secureProtocol === "TLSv1_3_server_method"
-  )
-    return [TLS1_3_VERSION, TLS1_3_VERSION];
   return null;
 }
 
@@ -757,6 +748,14 @@ function TLSSocket(socket?, options?) {
   }
 }
 $toClass(TLSSocket, "TLSSocket", NetSocket);
+
+TLSSocket.prototype._destroySSL = function _destroySSL() {
+  // Releases the TLS state for this socket (Node frees the SSL structure
+  // here); the connection itself is torn down by the caller.
+  this.secureConnecting = false;
+  this._secureEstablished = false;
+  this._handle?.close?.();
+};
 
 TLSSocket.prototype._start = function _start() {
   // some frameworks uses this _start internal implementation is suposed to start TLS handshake/connect
@@ -1321,11 +1320,20 @@ function setDefaultCACertificates(certs: ReadonlyArray<CACertInput>): void {
     if (typeof cert !== "string" && !isArrayBufferView(cert)) {
       throw $ERR_INVALID_ARG_TYPE(`certs[${i}]`, "string or an instance of ArrayBufferView", cert);
     }
-    const x509 = new _X509CertificateClass(cert);
-    const fingerprint = x509.fingerprint256;
-    if (!seen.has(fingerprint)) {
-      seen.add(fingerprint);
-      normalized.push(x509.toString());
+    // An element may be a concatenated PEM bundle; Node adds every certificate
+    // it contains, so split on certificate boundaries before parsing (a single
+    // X509Certificate parse only consumes the first block).
+    const text = typeof cert === "string" ? cert : Buffer.from(cert.buffer, cert.byteOffset, cert.byteLength).toString("latin1");
+    const blocks = text.includes("-----BEGIN")
+      ? text.split(/(?=-----BEGIN [A-Z0-9 ]*CERTIFICATE-----)/).filter(block => block.trim())
+      : [cert];
+    for (const block of blocks) {
+      const x509 = new _X509CertificateClass(block as CACertInput);
+      const fingerprint = x509.fingerprint256;
+      if (!seen.has(fingerprint)) {
+        seen.add(fingerprint);
+        normalized.push(x509.toString());
+      }
     }
   }
   _defaultCACertificatesOverride = normalized;
