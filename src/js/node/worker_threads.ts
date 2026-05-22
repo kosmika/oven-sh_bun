@@ -219,7 +219,7 @@ Object.defineProperty(MessagePort.prototype, "close", {
 // still active). Symbol-keyed so it does not appear in getOwnPropertyNames.
 const kInspectCustom = Symbol.for("nodejs.util.inspect.custom");
 Object.defineProperty(MessagePort.prototype, kInspectCustom, {
-  value: function (depth, options) {
+  value: function (_depth, _options) {
     return `MessagePort [EventTarget] { active: ${_isMessagePortActive(this)}, refed: ${this.hasRef()} }`;
   },
   writable: true,
@@ -402,7 +402,7 @@ function markAsUntransferable() {
   throwNotImplemented("worker_threads.markAsUntransferable");
 }
 
-function moveMessagePortToContext(port, context) {
+function moveMessagePortToContext(port, _context) {
   if (port instanceof MessagePort) {
     if (closedMessagePorts.has(port)) {
       throw $ERR_CLOSED_MESSAGE_PORT("Cannot send data on closed MessagePort");
