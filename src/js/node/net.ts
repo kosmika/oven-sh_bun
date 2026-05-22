@@ -379,8 +379,12 @@ const ServerHandlers: SocketHandler<NetSocket> = {
     // Dispatch through the listener handle's onconnection hook so user code
     // (and node:cluster RoundRobinHandle) can intercept accepted sockets the
     // same way Node.js exposes TCP/Pipe wrap onconnection.
+    // For a standalone server-side wrap (new TLSSocket(duplex, { isServer })),
+    // `self` is the wrapping socket - not a Server - and its handle has no
+    // onconnection; throwing here would tear the brand-new TLS engine down
+    // before the ClientHello ever arrives.
     const handle = self._handle || socket.listener;
-    if (handle) {
+    if (handle && typeof handle.onconnection === "function") {
       handle.onconnection(0, socket);
     }
   },
@@ -1372,11 +1376,20 @@ Socket.prototype.pause = function pause() {
 Socket.prototype[Symbol.for("::bunUpgradeServerTLS::")] = function (connection, tls) {
   const socket = connection._handle;
   if (!socket) {
-    // An unconnected net.Socket or a generic Duplex has no native handle to
-    // adopt; keep the wrapped stream as the handle placeholder like the
-    // client-side wrap does instead of throwing from the constructor.
-    this._handle = connection;
-    this._handle._parentWrap = this;
+    // A generic Duplex (or a not-yet-connected net.Socket) has no native fd
+    // to adopt into a TLS socket; run the TLS engine over the stream itself.
+    // The returned events feed the stream's bytes into the engine and back.
+    const [result, events] = upgradeDuplexToTLS(connection, {
+      data: this,
+      tls,
+      socket: ServerHandlers,
+      isServer: true,
+    });
+    connection.on("data", events[0]);
+    connection.on("end", events[1]);
+    connection.on("drain", events[2]);
+    connection.on("close", events[3]);
+    this._handle = result;
     return;
   }
   this[kupgraded] = connection;
