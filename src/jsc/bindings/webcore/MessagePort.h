@@ -74,6 +74,7 @@ public:
     // Called on the entangled peer when this side closes: dispatches a
     // 'close' event and releases the event-loop ref so the loop can idle.
     void peerClosed();
+    void dispatchCloseEvent();
 
     // Transfer machinery.
     static ExceptionOr<Vector<TransferredMessagePort>> disentanglePorts(Vector<RefPtr<MessagePort>>&&);
@@ -134,6 +135,7 @@ private:
     bool m_started { false };
     bool m_isDetached { false };
     bool m_isClosing { false };
+    bool m_closeEventDispatched { false };
     bool m_hasMessageEventListener { false };
     bool m_hasRef { false };
 

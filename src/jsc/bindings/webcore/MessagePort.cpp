@@ -145,6 +145,11 @@ void MessagePort::close()
     // rejected by the pipe's Closed check in send().
     flushQueuedMessagesBeforeClose();
 
+    // Fire 'close' after queued messages are delivered and before teardown,
+    // so listeners see it post-flush. Guarded against a double dispatch when
+    // the peer already closed.
+    dispatchCloseEvent();
+
     m_isDetached = true;
 
     // m_pipe is held for the port's whole lifetime (the GC thread reads
@@ -168,6 +173,19 @@ void MessagePort::close()
     }
 }
 
+void MessagePort::dispatchCloseEvent()
+{
+    if (m_closeEventDispatched)
+        return;
+    m_closeEventDispatched = true;
+    auto* context = scriptExecutionContext();
+    if (!context || !context->globalObject())
+        return;
+    auto* globalObject = defaultGlobalObject(context->globalObject());
+    if (Zig::GlobalObject::scriptExecutionStatus(globalObject, globalObject) == ScriptExecutionStatus::Running)
+        dispatchEvent(Event::create(eventNames().closeEvent, Event::CanBubble::No, Event::IsCancelable::No));
+}
+
 void MessagePort::peerClosed()
 {
     if (m_isDetached)
@@ -176,14 +194,15 @@ void MessagePort::peerClosed()
     if (!context || !context->globalObject())
         return;
     Ref protectedThis { *this };
-    auto* globalObject = defaultGlobalObject(context->globalObject());
     // The entangled peer closed: no further messages can arrive. Notify
-    // listeners with a 'close' event and release the event-loop ref held by
+    // listeners with a 'close' event (guarded so an explicit close() on this
+    // side doesn't fire it twice) and release the event-loop ref held by
     // jsRef()/onmessage so the loop can idle. Matches node's MessagePort.
-    if (Zig::GlobalObject::scriptExecutionStatus(globalObject, globalObject) == ScriptExecutionStatus::Running)
-        dispatchEvent(Event::create(eventNames().closeEvent, Event::CanBubble::No, Event::IsCancelable::No));
-    if (m_hasRef)
+    dispatchCloseEvent();
+    if (m_hasRef) {
+        auto* globalObject = defaultGlobalObject(context->globalObject());
         jsUnref(globalObject);
+    }
 }
 
 TransferredMessagePort MessagePort::disentangle()

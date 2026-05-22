@@ -211,11 +211,8 @@ const nativeMessagePortClose = MessagePort.prototype.close;
 Object.defineProperty(MessagePort.prototype, "close", {
   value: function close(cb) {
     closedMessagePorts.add(this);
-    // Bun's native close() does not emit a "close" event. Dispatch it here,
-    // synchronously while the port is still attached, so listeners registered
-    // before close() still run. The detach below is synchronous, but node fires
-    // the optional callback asynchronously, so schedule it on a microtask.
-    this.dispatchEvent(new Event("close"));
+    // Native close() now dispatches the "close" event (after delivering any
+    // queued messages). node invokes the optional callback asynchronously.
     const result = nativeMessagePortClose.$call(this);
     if (typeof cb === "function") {
       queueMicrotask(cb);
