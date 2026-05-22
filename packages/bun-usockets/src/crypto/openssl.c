@@ -646,7 +646,10 @@ SSL_CTX *us_ssl_ctx_build_raw(struct us_bun_socket_context_options_t options,
           us_verify_callback);
     }
   } else if (options.request_cert) {
-    SSL_CTX_set_cert_store(ssl_context, us_get_default_ca_store());
+    /* No per-config CAs are added to this store, so the process-wide shared
+     * copy (built once) can be used instead of re-parsing the ~150 bundled
+     * roots for every context - the same approach as Node's root_cert_store. */
+    SSL_CTX_set_cert_store(ssl_context, us_get_shared_default_ca_store());
     SSL_CTX_set_verify(ssl_context,
         options.reject_unauthorized ? (SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
                                     : SSL_VERIFY_PEER,
@@ -753,6 +756,11 @@ void us_internal_ssl_attach(struct us_socket_t *s, SSL_CTX *ctx,
 
   SSL *ssl = SSL_new(ctx);
   if (ssl) {
+    /* The very first TLS attach in a process can be a client connection, and
+     * nothing on that path has registered the ex_data indices yet - using the
+     * still--1 index would make CRYPTO_set_ex_data grow its slot array toward
+     * (size_t)-1. */
+    us_ex_idx_ensure();
     SSL_set_ex_data(ssl, us_ssl_is_socket_ex_idx, (void *)1);
   }
   SSL_set_bio(ssl, loop_ssl_data->shared_rbio, loop_ssl_data->shared_wbio);
