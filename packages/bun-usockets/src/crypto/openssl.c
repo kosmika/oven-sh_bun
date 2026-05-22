@@ -123,6 +123,8 @@ static int us_ssl_listener_ex_idx = -1;
  * owned by other engines (the JS-stream SSL wrapper used for TLS-over-duplex)
  * whose BIOs do not point at the loop's shared BIO data. */
 static int us_ssl_is_socket_ex_idx = -1;
+/* Defined in Rust (src/uws_sys/SocketKind.rs) so the ordinal tracks the enum. */
+extern const unsigned char BUN_SOCKET_KIND_BUN_SOCKET_TLS;
 /* Serialized resumable session parked by the new-session callback until the
  * SSL stack unwinds; freed with the SSL if never delivered. */
 static int us_ssl_pending_session_idx = -1;
@@ -755,7 +757,11 @@ void us_internal_ssl_attach(struct us_socket_t *s, SSL_CTX *ctx,
   struct loop_ssl_data *loop_ssl_data = (struct loop_ssl_data *)s->group->loop->data.ssl_data;
 
   SSL *ssl = SSL_new(ctx);
-  if (ssl) {
+  /* Only Bun.connect / node:tls sockets surface the 'session' event; tagging
+   * just those keeps the new-session callback a no-op for every other TLS
+   * consumer (fetch, Bun.serve, postgres, websockets) instead of serializing
+   * a session per handshake that the dispatch then discards. */
+  if (ssl && us_socket_kind(s) == BUN_SOCKET_KIND_BUN_SOCKET_TLS) {
     /* The very first TLS attach in a process can be a client connection, and
      * nothing on that path has registered the ex_data indices yet - using the
      * still--1 index would make CRYPTO_set_ex_data grow its slot array toward
