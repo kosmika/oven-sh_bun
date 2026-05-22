@@ -338,12 +338,7 @@ fn handle_file_array(
     elements: &[jsc::generated::SSLConfigSingleFile],
 ) -> Result<CStrSlice, ReadFromBlobError> {
     if elements.is_empty() {
-        // An explicitly-empty array is not the same as an absent option: for
-        // `ca` it means an empty trust store (verification fails for every
-        // chain) rather than "fall back to the bundled roots". Keep it as a
-        // present-but-empty slice; the C layer only dereferences when the
-        // count is non-zero, so `cert`/`key` are unaffected.
-        return Ok(Some(Vec::new().into_boxed_slice()));
+        return Ok(None);
     }
     let mut result: Vec<*const c_char> = Vec::with_capacity(elements.len());
     // errdefer { free_sensitive each; drop result } — need zeroing on error:
