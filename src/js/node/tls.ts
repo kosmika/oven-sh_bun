@@ -1326,7 +1326,11 @@ function setDefaultCACertificates(certs: ReadonlyArray<CACertInput>): void {
     const text =
       typeof cert === "string" ? cert : Buffer.from(cert.buffer, cert.byteOffset, cert.byteLength).toString("latin1");
     const blocks = text.includes("-----BEGIN")
-      ? text.split(/(?=-----BEGIN [A-Z0-9 ]*CERTIFICATE-----)/).filter(block => block.trim())
+      ? // Keep only the blocks that actually start a PEM certificate: bundle
+        // files routinely begin with comment headers (curl's cacert.pem,
+        // RHEL's ca-bundle.crt) that the lookahead split leaves as a leading
+        // non-PEM element.
+        text.split(/(?=-----BEGIN [A-Z0-9 ]*CERTIFICATE-----)/).filter(block => block.includes("-----BEGIN"))
       : [cert];
     for (const block of blocks) {
       const x509 = new _X509CertificateClass(block as CACertInput);
