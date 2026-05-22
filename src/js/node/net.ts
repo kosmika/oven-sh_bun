@@ -655,11 +655,17 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
     if (err) $debug(err);
     if (self[kclosed]) return;
     self[kclosed] = true;
-    // TODO: surface a received RST here as 'read ECONNRESET' like Node does for
-    // outgoing sockets. The accepted-socket path already does; doing it here
-    // needs the close to be attributable to the socket's current handle first
-    // (connection attempts that lost the race and sockets handed off during a
-    // TLS upgrade also report errors on close).
+    // A received RST surfacing as ECONNRESET with the close is not a clean
+    // EOF - Node destroys the socket with "read ECONNRESET" instead of a
+    // graceful 'end'. Only surface it when the closing handle is still the
+    // socket's current handle: connection attempts that lost the
+    // family-autoselection race and raw sockets handed off during a TLS
+    // upgrade also report errors on close, and those must keep ending
+    // cleanly.
+    if (err && err.code === "ECONNRESET" && !self.destroyed && socket === self._handle) {
+      self.destroy(new ConnResetException("read ECONNRESET"));
+      return;
+    }
     self[kended] = true;
     if (!self.allowHalfOpen) self.write = writeAfterFIN;
     self.push(null);
