@@ -14,7 +14,7 @@ import path from "path";
 
 const fixture = path.join(import.meta.dir, "sql-mysql-datetime-roundtrip-fixture.ts");
 
-test.each(["UTC", "America/New_York", "Asia/Tokyo"])(
+test.concurrent.each(["UTC", "America/New_York", "Asia/Tokyo"])(
   "DATETIME Date round-trip is the identity under TZ=%s",
   async TZ => {
     await using proc = Bun.spawn({
@@ -31,12 +31,19 @@ test.each(["UTC", "America/New_York", "Asia/Tokyo"])(
       .join("\n");
     expect(filteredStderr).toBe("");
 
-    const { tz, results } = JSON.parse(stdout.trim()) as {
+    const { tz, offsetMin, results } = JSON.parse(stdout.trim()) as {
       tz: string;
       offsetMin: number;
       results: Array<{ in: number; out: number; diffMin: number }>;
     };
     expect(tz).toBe(TZ);
+    // Prove the child runtime actually adopted the TZ — otherwise the non-UTC
+    // cases silently degenerate into the UTC case and stop exercising the bug.
+    if (TZ === "UTC") {
+      expect(offsetMin).toBe(0);
+    } else {
+      expect(offsetMin).not.toBe(0);
+    }
     expect(results).toEqual([
       { in: 1718452800000, out: 1718452800000, diffMin: 0 },
       { in: 1705278600000, out: 1705278600000, diffMin: 0 },
