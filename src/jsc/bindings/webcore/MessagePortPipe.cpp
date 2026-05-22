@@ -252,11 +252,12 @@ void MessagePortPipe::close(uint8_t side)
         // `dropped` (and the RefPtr in the structured binding) destruct
         // outside the lock; they may hold the last ref to pipes whose
         // destructors also take locks.
-    }
 
-    // Notify the entangled peer of the side that was explicitly closed so it
-    // can fire 'close' and release its event-loop ref (the channel is dead).
-    notifyPeerClosed(1 - side);
+        // Notify each closed pipe's entangled peer so it can fire 'close' and
+        // release its event-loop ref — including nested in-transit ports drained
+        // from the worklist, not just the originally-closed side.
+        pipe->notifyPeerClosed(1 - sd);
+    }
 }
 
 void MessagePortPipe::notifyPeerClosed(uint8_t peerSide)
