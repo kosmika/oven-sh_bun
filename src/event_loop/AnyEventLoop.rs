@@ -134,7 +134,7 @@ impl<'a> AnyEventLoop<'a> {
     pub fn js_current_or_mini() -> AnyEventLoop<'static> {
         let ptr = __bun_js_event_loop_current_or_null();
         if ptr.is_null() {
-            AnyEventLoop::Mini(MiniEventLoop::init())
+            AnyEventLoop::Mini(Box::new(MiniEventLoop::init()))
         } else {
             AnyEventLoop::Js {
                 owner: JsEventLoop::current(),
