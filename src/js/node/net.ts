@@ -357,10 +357,13 @@ const ServerHandlers: SocketHandler<NetSocket> = {
   },
   handshake(socket, success, verifyError) {
     const self = socket.data;
+    // `server` is null for a standalone `new tls.TLSSocket(socket, { isServer: true })`
+    // (no listening server owns it) — guard every server.emit / server option read.
+    const server = self.server;
     if (!success && verifyError?.code === "ECONNRESET") {
       const err = new ConnResetException("socket hang up");
       self.emit("_tlsError", err);
-      self.server.emit("tlsClientError", err, self);
+      server?.emit("tlsClientError", err, self);
       self._hadError = true;
       // error before handshake on the server side will only be emitted using tlsClientError
       self.destroy();
@@ -370,14 +373,16 @@ const ServerHandlers: SocketHandler<NetSocket> = {
     self.secureConnecting = false;
     self._secureEstablished = !!success;
     self.servername = socket.getServername();
-    const server = self.server!;
     self.alpnProtocol = socket.alpnProtocol;
     if (self._requestCert || self._rejectUnauthorized) {
       if (verifyError) {
         self.authorized = false;
         self.authorizationError = verifyError.code || verifyError.message;
-        server.emit("tlsClientError", verifyError, self);
-        if (self._rejectUnauthorized) {
+        server?.emit("tlsClientError", verifyError, self);
+        // Node only enforces client-cert verification (and the resulting destroy)
+        // when the server actually requested a cert; a server without requestCert
+        // leaves `authorized` false but keeps the connection open.
+        if (self._rejectUnauthorized && self._requestCert) {
           // if we reject we still need to emit secure
           self.emit("secure", self);
           self.destroy(verifyError);
@@ -389,15 +394,17 @@ const ServerHandlers: SocketHandler<NetSocket> = {
     } else {
       self.authorized = true;
     }
-    const connectionListener = server[bunSocketServerOptions]?.connectionListener;
-    if (typeof connectionListener === "function") {
-      server.prependOnceListener("secureConnection", connectionListener);
+    if (server) {
+      const connectionListener = server[bunSocketServerOptions]?.connectionListener;
+      if (typeof connectionListener === "function") {
+        server.prependOnceListener("secureConnection", connectionListener);
+      }
+      server.emit("secureConnection", self);
     }
-    server.emit("secureConnection", self);
     // after secureConnection event we emmit secure and secureConnect
     self.emit("secure", self);
     self.emit("secureConnect", verifyError);
-    if (server.pauseOnConnect) {
+    if (server?.pauseOnConnect) {
       self.pause();
     } else {
       self.resume();
@@ -1307,6 +1314,35 @@ Socket.prototype.pause = function pause() {
     this._handle?.pause();
   }
   return Duplex.prototype.pause.$call(this);
+};
+
+// Server-side TLS upgrade over an accepted socket, for
+// `new tls.TLSSocket(socket, { isServer: true })`. Uses the native upgradeTLS
+// (fd-driven accept-state handshake — server-capable now that us_socket_adopt_tls
+// takes is_client). Lives here, not tls.ts, to reach the module-private kupgraded
+// and ServerHandlers — the single shared server handler table, with per-socket
+// state carried via `data` (mirrors tls.createServer's one-handler-for-all model).
+Socket.prototype[Symbol.for("::bunUpgradeServerTLS::")] = function (connection, tls) {
+  const socket = connection._handle;
+  if (!socket) {
+    this._handle = null;
+    throw new Error("Invalid socket");
+  }
+  this[kupgraded] = connection;
+  const result = socket.upgradeTLS({
+    data: this,
+    tls,
+    socket: ServerHandlers,
+  });
+  if (!result) {
+    this._handle = null;
+    throw new Error("Invalid socket");
+  }
+  const [raw, tlsHandle] = result;
+  connection._handle = raw;
+  this.once("end", this[kCloseRawConnection]);
+  raw.connecting = false;
+  this._handle = tlsHandle;
 };
 
 Socket.prototype.read = function read(size) {

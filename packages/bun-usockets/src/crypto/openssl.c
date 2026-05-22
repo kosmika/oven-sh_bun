@@ -1209,17 +1209,28 @@ void us_internal_ssl_handshake_abort(struct us_socket_t *s) {
 
 /* ── Adopt-TLS (STARTTLS / Bun.connect upgrade) ──────────────────────────── */
 
+/* Feed bytes that were already read off the wire (e.g. a ClientHello consumed
+ * by the plain-TCP layer before the socket was adopted into TLS) through the
+ * same decrypt path as bytes arriving from the kernel. */
+struct us_socket_t *us_socket_tls_feed(struct us_socket_t *s, const char *data, int length) {
+  if (us_socket_is_closed(s) || !s->ssl || length <= 0) return s;
+  return us_internal_ssl_on_data(s, (char *)data, length);
+}
+
 struct us_socket_t *us_socket_adopt_tls(struct us_socket_t *s,
                                         struct us_socket_group_t *group,
                                         unsigned char kind, struct ssl_ctx_st *ssl_ctx,
-                                        const char *sni, int old_ext_size,
+                                        const char *sni, int is_client, int old_ext_size,
                                         int ext_size) {
   if (us_socket_is_closed(s)) return NULL;
 
   struct us_socket_t *new_s = us_socket_adopt(s, group, kind, old_ext_size, ext_size);
   if (!new_s) return NULL;
 
-  us_internal_ssl_attach(new_s, ssl_ctx, /*is_client*/1, sni, NULL);
+  /* is_client=0 puts the SSL in accept state (server-side upgrade, e.g.
+   * `new tls.TLSSocket(acceptedSocket, { isServer: true })`); there is no
+   * listener for an adopted socket, so SNI resolves from the single ssl_ctx. */
+  us_internal_ssl_attach(new_s, ssl_ctx, is_client, sni, NULL);
   us_socket_resume(new_s);
   /* Do NOT kick the handshake or dispatch on_open here — the caller hasn't
    * repointed the ext slot yet, so any dispatch (open/handshake/close) would

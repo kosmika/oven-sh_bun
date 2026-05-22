@@ -320,9 +320,10 @@ struct us_socket_t *us_socket_adopt(us_socket_r s, us_socket_group_r group,
 /* Same, but also attaches a fresh SSL* built from ssl_ctx (which is up_ref'd
  * for the lifetime of the socket). Used for STARTTLS / Bun.connect upgrade.
  * sni may be NULL. */
+struct us_socket_t *us_socket_tls_feed(us_socket_r s, const char *data, int length) __attribute__((nonnull(1)));
 struct us_socket_t *us_socket_adopt_tls(us_socket_r s, us_socket_group_r group,
     unsigned char kind, struct ssl_ctx_st *ssl_ctx, const char *sni,
-    int old_ext_size, int ext_size) __attribute__((nonnull(1, 2, 4)));
+    int is_client, int old_ext_size, int ext_size) __attribute__((nonnull(1, 2, 4)));
 /* Send ClientHello after adopt_tls. Separate so the caller can repoint the
  * ext slot before any dispatch can fire. */
 void us_socket_start_tls_handshake(us_socket_r s) nonnull_fn_decl;

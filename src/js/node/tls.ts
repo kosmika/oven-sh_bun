@@ -731,11 +731,14 @@ function TLSSocket(socket?, options?) {
       convertALPNProtocols(ALPNProtocols, this);
     }
 
-    if (isNetSocketOrDuplex) {
+    if (isNetSocketOrDuplex && !this.isServer) {
       this._handle = socket;
       // keep compatibility with http2-wrapper or other places that try to grab JSStreamSocket in node.js, with here is just the TLSSocket
       this._handle._parentWrap = this;
     }
+    // For the server wrap, _handle is assigned the upgraded TLS handle by the
+    // server-upgrade method below; leaving it unset until then means a synchronous
+    // teardown during upgradeTLS won't call close() on the bare net.Socket.
   }
   this[ksecureContext] = options.secureContext || createSecureContext(options);
   this.authorized = false;
@@ -744,6 +747,14 @@ function TLSSocket(socket?, options?) {
   this._securePending = true;
   this[kcheckServerIdentity] = options.checkServerIdentity || checkServerIdentity;
   this[ksession] = options.session || null;
+
+  // `new tls.TLSSocket(socket, { isServer: true })`: drive the server-side TLS
+  // handshake over the provided socket via net.ts's native upgrade path (reaches
+  // the module-private kupgraded + the shared ServerHandlers). Client-side wraps
+  // go through the connect path elsewhere.
+  if (isNetSocketOrDuplex && this.isServer) {
+    this[Symbol.for("::bunUpgradeServerTLS::")](socket, this[buntls](null, null));
+  }
 }
 $toClass(TLSSocket, "TLSSocket", NetSocket);
 

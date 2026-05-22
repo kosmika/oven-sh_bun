@@ -2716,9 +2716,10 @@ impl<const SSL: bool> NewSocket<SSL> {
                 "upgradeTLS requires an established socket"
             )));
         };
-        if this.is_server() {
-            return Err(global.throw(format_args!("Server-side upgradeTLS is not supported. Use upgradeDuplexToTLS with isServer: true instead.")));
-        }
+        // Server-side upgrade (`new tls.TLSSocket(acceptedSocket, { isServer: true })`):
+        // adopt the fd into an accept-state SSL so the native read path drives the
+        // handshake — same code path as the client upgrade, only `is_client` flips.
+        let is_server = this.is_server();
 
         let args = callframe.arguments_old::<1>();
         if args.len < 1 {
@@ -2735,6 +2736,18 @@ impl<const SSL: bool> NewSocket<SSL> {
         if global.has_exception() {
             return Ok(JSValue::ZERO);
         }
+        // Bytes already consumed from the wire before the upgrade (e.g. the
+        // ClientHello sitting in the readable buffer of the socket being
+        // wrapped); fed into the TLS engine once the upgrade is wired up.
+        let initial_data: StringOrBuffer = match opts.get_truthy(global, "initialData")? {
+            Some(v) => StringOrBuffer::from_js(global, v)?.unwrap_or(StringOrBuffer::EMPTY),
+            None => StringOrBuffer::EMPTY,
+        };
+        // Handlers lifecycle is always client-mode (heap-per-connection) here: a
+        // standalone `new TLSSocket(socket, { isServer })` is NOT a SocketListener,
+        // and server-mode Handlers::mark_inactive assumes its `this` is a Listener's
+        // embedded `handlers` field. The server-ness lives in the SSL accept state
+        // (adopt_tls is_client=!is_server) + the ServerHandlers JS table, not here.
         let handlers = Handlers::from_js(global, socket_obj, false)?;
         if global.has_exception() {
             return Ok(JSValue::ZERO);
@@ -2920,6 +2933,7 @@ impl<const SSL: bool> NewSocket<SSL> {
                 uws::SocketKind::BunSocketTls,
                 &mut *((*tls_ptr).owned_ssl_ctx.get().unwrap()),
                 sni,
+                !is_server,
                 core::mem::size_of::<*mut c_void>() as i32,
                 core::mem::size_of::<*mut c_void>() as i32,
             )
@@ -3077,6 +3091,21 @@ impl<const SSL: bool> NewSocket<SSL> {
         };
         // SAFETY: `new_raw` is the live adopted `us_socket_t`.
         unsafe { (*new_raw.as_ptr()).start_tls_handshake() };
+        // The socket being wrapped may have had its readable interest off (an
+        // accepted socket nobody was reading yet — its ClientHello is still in
+        // the kernel buffer); make sure the adopted TLS socket is reading so
+        // the handshake can be driven. A no-op when it was already reading.
+        // SAFETY: `new_raw` is the live adopted `us_socket_t`.
+        unsafe { (*new_raw.as_ptr()).resume() };
+        // Feed bytes that arrived before the upgrade (already pulled off the fd
+        // by the plain-TCP layer) into the TLS engine exactly as if they had
+        // just been received — for a server-side wrap this is the ClientHello.
+        let initial_slice = initial_data.slice();
+        if !initial_slice.is_empty() {
+            // SAFETY: `new_raw` is live; the slice borrows a JS-owned buffer kept
+            // alive by the options object for the duration of this call.
+            unsafe { (*new_raw.as_ptr()).tls_feed(initial_slice) };
+        }
 
         let array = JSValue::create_empty_array(global, 2)?;
         array.put_index(global, 0, raw_js_value)?;
