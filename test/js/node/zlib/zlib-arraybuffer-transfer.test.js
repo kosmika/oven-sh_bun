@@ -35,13 +35,22 @@ describe.each([
     expect(Buffer.concat(chunks).equals(input)).toBe(true);
   });
 
-  for (const detach of ["_outBuffer", "_writeState"]) {
-    it(`survives ${detach}.buffer.transfer(0) mid-write`, async () => {
+  // One variant per buffer the native handle holds a raw pointer into during
+  // an async write: the input chunk, the output buffer, and the shared
+  // `_writeState` Uint32Array. Random input keeps `compressed` large enough to
+  // own its ArrayBuffer (not the Buffer pool), so the input variant transfers
+  // exactly the buffer the worker reads from.
+  for (const [label, transferExpr] of [
+    ["the input chunk's buffer", "compressed.buffer"],
+    ["_outBuffer.buffer", "s._outBuffer.buffer"],
+    ["_writeState.buffer", "s._writeState.buffer"],
+  ]) {
+    it(`survives ${label}.transfer(0) mid-write`, async () => {
       // Spawned so a pre-fix UAF surfaces as a non-zero exit instead of
       // crashing the test runner. Positive post-condition only (no stderr grep).
       const script = /* js */ `
         const z = require("zlib");
-        const input = Buffer.alloc(${SIZE}, 0x41);
+        const input = require("crypto").randomBytes(${SIZE});
         const compressed = z.${compressSync}(input);
         const s = z.${createDecompress}({ chunkSize: ${SIZE} });
         const chunks = [];
@@ -53,7 +62,7 @@ describe.each([
         });
         s.on("error", e => console.log("ERR " + e.message));
         s.write(compressed);
-        s.${detach}.buffer.transfer(0);
+        ${transferExpr}.transfer(0);
         s.end();
       `;
       await using proc = Bun.spawn({
