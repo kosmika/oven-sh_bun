@@ -1377,10 +1377,10 @@ impl<const SSL: bool> Handler<SSL> {
         // stops reading them), so the peer would never observe the connection
         // closing and it would leak.
         if let Some(client) = tagged.client_mut() {
-            if client.state.request_stage == crate::internal_state::RequestStage::Done {
-                socket.close(uws::CloseKind::Normal);
-            } else {
+            if client.has_unsent_request_body() {
                 socket.close(uws::CloseKind::Failure);
+            } else {
+                socket.close(uws::CloseKind::Normal);
             }
             client.on_close::<SSL>(socket);
             return;
