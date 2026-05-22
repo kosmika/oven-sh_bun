@@ -392,12 +392,18 @@ describe("worker_threads", () => {
     expect(process.execArgv).toEqual(original_execArgv);
   });
 
-  test("worker with eval = false fails with code", async () => {
-    let has_error = false;
-    const worker = new wt.Worker("console.log('this should not get printed')", { eval: false });
-    const [err] = await once(worker, "error");
-    expect(err.constructor.name).toEqual("Error");
-    expect(err.message).toMatch(/BuildMessage: ModuleNotFound.+/);
+  test("worker with eval = false validates the filename", () => {
+    // eval:false is equivalent to omitting eval, so a bare string that isn't a
+    // path is rejected synchronously like Node (ERR_WORKER_PATH), rather than
+    // being treated as a module specifier.
+    let err: any;
+    try {
+      new wt.Worker("console.log('this should not get printed')", { eval: false });
+    } catch (e) {
+      err = e;
+    }
+    expect(err?.code).toBe("ERR_WORKER_PATH");
+    expect(err?.constructor.name).toBe("TypeError");
   });
 
   test("worker with eval = true succeeds with valid code", async () => {

@@ -181,6 +181,18 @@ function injectFakeEmitter(Class) {
     enumerable: false,
     configurable: true,
   });
+  Object.defineProperty(inherited, "addListener", {
+    value: on,
+    writable: true,
+    enumerable: false,
+    configurable: true,
+  });
+  Object.defineProperty(inherited, "removeListener", {
+    value: off,
+    writable: true,
+    enumerable: false,
+    configurable: true,
+  });
   Object.setPrototypeOf(proto, inherited);
 }
 
@@ -234,10 +246,14 @@ const BUN_WORKER_STDIO_KEY = "@@bunWorkerThreadsStdio";
 // Readable fed by a control MessagePort (worker.stdout/stderr on the parent,
 // process.stdin in the worker). The peer posts Buffers; null signals EOF.
 function makePortReadable(port) {
-  const stream = new Readable({ read() {} });
+  let attached = false;
+  let ended = false;
   function onMessage(chunk) {
     if (chunk === null) {
-      stream.push(null);
+      if (ended === false) {
+        ended = true;
+        stream.push(null);
+      }
       // Drop the listener so the control port stops holding the event loop
       // open once the stream has ended.
       port.off("message", onMessage);
@@ -245,7 +261,25 @@ function makePortReadable(port) {
       stream.push(Buffer.from(chunk));
     }
   }
-  port.on("message", onMessage);
+  // Attach the message listener lazily on first read(). A transferred port
+  // refs the event loop while it has a message listener, so attaching eagerly
+  // would keep a worker created with { stdin: true } alive even when it never
+  // reads stdin. Buffered messages flush once the listener is added.
+  const stream = new Readable({
+    read() {
+      if (attached === false) {
+        attached = true;
+        port.on("message", onMessage);
+      }
+    },
+  });
+  // Lets the parent end worker.stdout/stderr when the worker exits abruptly.
+  stream.endFromOwner = function () {
+    if (ended === false) {
+      ended = true;
+      stream.push(null);
+    }
+  };
   return stream;
 }
 
@@ -288,6 +322,12 @@ function setupWorkerStdio(stdio) {
       configurable: true,
       enumerable: true,
     });
+  }
+  // node routes console.log through process.stdout/stderr; Bun's global console
+  // writes the fd directly, so rebind it to the captured streams when present.
+  if (stdio.stdout || stdio.stderr) {
+    const { Console } = require("node:console");
+    globalThis.console = new Console(process.stdout, process.stderr);
   }
 }
 
@@ -592,6 +632,14 @@ class Worker extends EventEmitter {
 
   #onClose(e) {
     this.#exited = true;
+    // End captured stdio readables when the worker exits, even if it was
+    // terminated before its own streams finished.
+    if (this.#stdout) {
+      this.#stdout.endFromOwner();
+    }
+    if (this.#stderr) {
+      this.#stderr.endFromOwner();
+    }
     this.#onExitPromise = e.code;
     this.emit("exit", e.code);
   }

@@ -246,7 +246,8 @@ test("support worker eval that throws", async () => {
     worker.on("message", resolve);
     worker.on("error", resolve);
   });
-  expect(result.toString()).toInclude(`error: Unexpected throw`);
+  expect(result.toString()).toInclude("Unexpected throw");
+  expect(result.name).toBe("SyntaxError");
   await worker.terminate();
 });
 
