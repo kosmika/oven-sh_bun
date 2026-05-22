@@ -167,8 +167,18 @@ function injectFakeEmitter(Class) {
   Object.defineProperty(inherited, "off", { value: off, writable: true, enumerable: false, configurable: true });
   Object.defineProperty(inherited, "once", { value: once, writable: true, enumerable: false, configurable: true });
   Object.defineProperty(inherited, "emit", { value: emit, writable: true, enumerable: false, configurable: true });
-  Object.defineProperty(inherited, "prependListener", { value: on, writable: true, enumerable: false, configurable: true });
-  Object.defineProperty(inherited, "prependOnceListener", { value: once, writable: true, enumerable: false, configurable: true });
+  Object.defineProperty(inherited, "prependListener", {
+    value: on,
+    writable: true,
+    enumerable: false,
+    configurable: true,
+  });
+  Object.defineProperty(inherited, "prependOnceListener", {
+    value: once,
+    writable: true,
+    enumerable: false,
+    configurable: true,
+  });
   Object.setPrototypeOf(proto, inherited);
 }
 
@@ -240,13 +250,28 @@ function makePortWritable(port) {
 
 function setupWorkerStdio(stdio) {
   if (stdio.stdout) {
-    Object.defineProperty(process, "stdout", { value: makePortWritable(stdio.stdout), writable: true, configurable: true, enumerable: true });
+    Object.defineProperty(process, "stdout", {
+      value: makePortWritable(stdio.stdout),
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
   }
   if (stdio.stderr) {
-    Object.defineProperty(process, "stderr", { value: makePortWritable(stdio.stderr), writable: true, configurable: true, enumerable: true });
+    Object.defineProperty(process, "stderr", {
+      value: makePortWritable(stdio.stderr),
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
   }
   if (stdio.stdin) {
-    Object.defineProperty(process, "stdin", { value: makePortReadable(stdio.stdin), writable: true, configurable: true, enumerable: true });
+    Object.defineProperty(process, "stdin", {
+      value: makePortReadable(stdio.stdin),
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
   }
 }
 
