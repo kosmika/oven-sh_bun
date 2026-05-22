@@ -1474,6 +1474,19 @@ fn on_unhandled_rejection(
         .to_error()
         .unwrap_or(error_instance_or_exception);
 
+    // A worker whose entry point (or a dynamic import) fails to parse rejects
+    // with a BuildMessage, which is not an Error and does not survive structured
+    // clone (the parent would otherwise get a generic Error). Node surfaces a
+    // module compile failure as a SyntaxError; build a real one carrying the
+    // formatted parse-error text so it serializes with its subtype intact.
+    if let Some(bm) = error_instance.as_::<crate::BuildMessage>() {
+        // SAFETY: as_ returned a live BuildMessage cell, read-only on the
+        // worker (JS) thread that owns it.
+        let text = unsafe { (*bm).msg.data.text.clone() };
+        error_instance =
+            global_object.create_syntax_error_instance(format_args!("{}", bstr::BStr::new(&text)));
+    }
+
     let mut array: Vec<u8> = Vec::new();
 
     // `worker_ref()` is the safe BACKREF accessor — `vm.worker` points at the
