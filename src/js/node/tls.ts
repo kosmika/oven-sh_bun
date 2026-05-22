@@ -1072,6 +1072,12 @@ function Server(options, secureConnectionListener): void {
 
         this.ciphers = options.ciphers;
       }
+
+      // Pin the protocol version range the server will negotiate.
+      // validateSecureContextOptions already rejected unknown method names.
+      if (options.secureProtocol !== undefined) this.secureProtocol = options.secureProtocol;
+      if (options.minVersion !== undefined) this.minVersion = options.minVersion;
+      if (options.maxVersion !== undefined) this.maxVersion = options.maxVersion;
     }
   };
 
@@ -1099,6 +1105,21 @@ function Server(options, secureConnectionListener): void {
         clientRenegotiationWindow: CLIENT_RENEG_WINDOW,
         contexts: contexts,
         ciphers: this.ciphers,
+        // Translate minVersion/maxVersion/secureProtocol to the integer
+        // protocol range the native layer applies (secureProtocol wins, like
+        // Node's SecureContext::Init).
+        ...(this.secureProtocol !== undefined || this.minVersion !== undefined || this.maxVersion !== undefined
+          ? (() => {
+              let minVersion = tlsStringToProtocolVersion(this.minVersion);
+              let maxVersion = tlsStringToProtocolVersion(this.maxVersion);
+              const range = secureProtocolToVersionRange(this.secureProtocol);
+              if (range) {
+                minVersion = range[0];
+                maxVersion = range[1];
+              }
+              return { minVersion, maxVersion };
+            })()
+          : {}),
       },
       TLSSocket,
     ];
