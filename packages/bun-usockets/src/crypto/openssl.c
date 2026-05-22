@@ -123,6 +123,9 @@ static int us_ssl_listener_ex_idx = -1;
  * owned by other engines (the JS-stream SSL wrapper used for TLS-over-duplex)
  * whose BIOs do not point at the loop's shared BIO data. */
 static int us_ssl_is_socket_ex_idx = -1;
+/* Serialized resumable session parked by the new-session callback until the
+ * SSL stack unwinds; freed with the SSL if never delivered. */
+static int us_ssl_pending_session_idx = -1;
 #ifdef _WIN32
 static INIT_ONCE us_ex_idx_once = INIT_ONCE_STATIC_INIT;
 #else
@@ -152,48 +155,79 @@ static void us_ssl_reneg_state_free(void *parent, void *ptr, CRYPTO_EX_DATA *ad,
 
 /* A new resumable session is ready (for TLS 1.3, the peer's NewSessionTicket
  * was just processed; SSL_get_session() right after the handshake only returns
- * an unresumable placeholder). Serialize it and hand it to the socket's
- * session callback synchronously, the way Node's NewSessionCallback calls
- * onnewsession. The callback runs inside SSL_read/SSL_do_handshake, so the
- * receiving JS handler must only store or emit the buffer. */
+ * an unresumable placeholder). This callback fires from inside
+ * SSL_read/SSL_do_handshake, where running JS could free the SSL out from
+ * under the caller - so it only serializes the session and parks it on the
+ * connection. ssl_flush_pending_session() hands it to the socket's session
+ * callback once the SSL stack has unwound. */
+struct us_ssl_pending_session_t {
+  struct us_ssl_pending_session_t *next;
+  int length;
+  unsigned char data[];
+};
+static void us_ssl_pending_session_free(void *parent, void *ptr, CRYPTO_EX_DATA *ad,
+                                        int index, long argl, void *argp) {
+  (void)parent; (void)ad; (void)index; (void)argl; (void)argp;
+  struct us_ssl_pending_session_t *pending = ptr;
+  while (pending) {
+    struct us_ssl_pending_session_t *next = pending->next;
+    free(pending);
+    pending = next;
+  }
+}
 static int us_ssl_new_session_cb(SSL *ssl, SSL_SESSION *session) {
   /* Only SSLs attached to a real us_socket_t set this marker; for any other
-   * owner (the JS-stream SSL wrapper used for TLS-over-duplex) the BIO's data
-   * is not the loop's shared BIO state and must not be touched. */
+   * owner (the JS-stream SSL wrapper used for TLS-over-duplex) there is no
+   * dispatch path for the parked session. */
   if (!SSL_get_ex_data(ssl, us_ssl_is_socket_ex_idx)) {
-    return 0;
-  }
-  BIO *rbio = SSL_get_rbio(ssl);
-  if (!rbio) {
-    return 0;
-  }
-  struct loop_ssl_data *loop_ssl_data = (struct loop_ssl_data *)BIO_get_data(rbio);
-  if (!loop_ssl_data) {
-    return 0;
-  }
-  struct us_socket_t *s = loop_ssl_data->ssl_socket;
-  if (!s || us_socket_is_closed(s) || s->ssl != ssl) {
     return 0;
   }
   int length = i2d_SSL_SESSION(session, NULL);
   if (length <= 0 || length > 65536) {
     return 0;
   }
-  unsigned char stack_buf[2048];
-  unsigned char *buf = (unsigned char *)(length <= (int)sizeof(stack_buf) ? stack_buf : malloc((size_t)length));
-  if (!buf) {
+  struct us_ssl_pending_session_t *pending =
+      malloc(sizeof(struct us_ssl_pending_session_t) + (size_t)length);
+  if (!pending) {
     return 0;
   }
-  unsigned char *out = buf;
-  int written = i2d_SSL_SESSION(session, &out);
-  if (written == length) {
-    us_dispatch_session(s, buf, length);
-  }
-  if (buf != stack_buf) {
-    free(buf);
+  unsigned char *out = pending->data;
+  pending->length = i2d_SSL_SESSION(session, &out);
+  pending->next = NULL;
+  /* Append: each NewSessionTicket is a distinct resumable session and gets
+   * its own 'session' event, in arrival order. */
+  struct us_ssl_pending_session_t *head = SSL_get_ex_data(ssl, us_ssl_pending_session_idx);
+  if (!head) {
+    SSL_set_ex_data(ssl, us_ssl_pending_session_idx, pending);
+  } else {
+    while (head->next) head = head->next;
+    head->next = pending;
   }
   /* 0: we serialized a copy; the caller keeps ownership of `session`. */
   return 0;
+}
+
+/* Deliver a session parked by the new-session callback. Must only be called
+ * once the SSL_read/SSL_do_handshake that parked it has returned; the JS it
+ * runs may close the socket, so callers must check ssl_gone(s) afterwards. */
+static void ssl_flush_pending_session(struct us_socket_t *s) {
+  if (!s->ssl || us_socket_is_closed(s)) {
+    return;
+  }
+  struct us_ssl_pending_session_t *pending =
+      SSL_get_ex_data(s->ssl, us_ssl_pending_session_idx);
+  if (!pending) {
+    return;
+  }
+  SSL_set_ex_data(s->ssl, us_ssl_pending_session_idx, NULL);
+  while (pending) {
+    struct us_ssl_pending_session_t *next = pending->next;
+    if (!us_socket_is_closed(s) && s->ssl) {
+      us_dispatch_session(s, pending->data, pending->length);
+    }
+    free(pending);
+    pending = next;
+  }
 }
 
 /* Defined in Zig (`SSLContextCache.zig`): tombstones the cache entry on
@@ -209,6 +243,7 @@ static void us_ex_idx_init(void) {
   us_ssl_reneg_state_idx = SSL_get_ex_new_index(0, NULL, NULL, NULL, us_ssl_reneg_state_free);
   us_ssl_listener_ex_idx = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
   us_ssl_is_socket_ex_idx = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
+  us_ssl_pending_session_idx = SSL_get_ex_new_index(0, NULL, NULL, NULL, us_ssl_pending_session_free);
 }
 
 #ifdef _WIN32
@@ -1113,6 +1148,11 @@ restart:
             s = us_dispatch_data(s, loop_ssl_data->ssl_read_output + LIBUS_RECV_BUFFER_PADDING, read);
             if (!s || ssl_gone(s)) return NULL;
           }
+          /* A NewSessionTicket that rode in with the close_notify was parked
+           * by the new-session callback; deliver it before the close tears
+           * the connection down. */
+          ssl_flush_pending_session(s);
+          if (ssl_gone(s)) return NULL;
           ssl_close(s, 0, NULL);
           return NULL;
         }
@@ -1189,6 +1229,12 @@ restart:
     s = us_internal_ssl_on_writable(s);
     if (!s || ssl_gone(s)) return NULL;
   }
+
+  /* The SSL_read loop above is fully unwound; deliver any session the
+   * new-session callback parked while it ran. The JS this dispatches may
+   * close the socket. */
+  ssl_flush_pending_session(s);
+  if (ssl_gone(s)) return NULL;
 
   return s;
 }
