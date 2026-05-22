@@ -1366,16 +1366,19 @@ impl<const SSL: bool> Handler<SSL> {
         // 4. Dead socket: it is already marked as dead
         let tagged = HTTPContext::<SSL>::get_tagged(ptr);
         HTTPContext::<SSL>::mark_tagged_socket_as_dead(socket, tagged);
-        // The peer finished gracefully (FIN); answer with a graceful close (FIN),
-        // not a Failure close — Failure arms SO_LINGER{1,0} and sends an RST,
-        // which makes well-behaved servers (including Node's net/http servers)
-        // observe ECONNRESET on every connection this client is done with.
-        socket.close(uws::CloseKind::Normal);
-
+        // An idle (pooled keep-alive) socket's FIN is answered with a graceful
+        // close so well-behaved servers don't observe ECONNRESET for
+        // connections we were simply done with. A FIN that cuts an *active*
+        // request short is answered with a reset instead: a graceful close
+        // would queue our FIN behind any not-yet-delivered request-body bytes
+        // (a server that rejects an upload early stops reading them), so the
+        // peer would never observe the connection closing and it would leak.
         if let Some(client) = tagged.client_mut() {
+            socket.close(uws::CloseKind::Failure);
             client.on_close::<SSL>(socket);
             return;
         }
+        socket.close(uws::CloseKind::Normal);
         if let Some(session) = tagged.session_mut() {
             session.on_close(bun_core::err!("ConnectionClosed"));
             return;
