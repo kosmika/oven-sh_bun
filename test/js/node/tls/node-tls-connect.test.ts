@@ -255,7 +255,10 @@ for (const { name, connect } of tests) {
         expect(cert.serialNumber).toBe("71a46ae89fd817ef81a34d5973e1de42f09b9d63");
         expect(cert.raw).toBeInstanceOf(Buffer);
       } finally {
-        socket.end();
+        // Tear the socket down immediately: the local server is disposed right
+        // after this test, and a lingering half-closed connection would observe
+        // its hard close as ECONNRESET (Node surfaces the same error).
+        socket.destroy();
       }
     });
 
