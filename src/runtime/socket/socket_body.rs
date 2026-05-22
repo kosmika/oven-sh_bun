@@ -828,13 +828,23 @@ impl<const SSL: bool> NewSocket<SSL> {
         }
 
         debug_assert!(errno >= 0);
-        let errno_: c_int = if errno == sys::SystemErrno::ENOENT as c_int {
-            sys::SystemErrno::ENOENT as c_int
+        // Unix-path connect errors keep their real code (a non-socket file is
+        // ENOTSOCK, a permission-denied path is EACCES, a missing one is
+        // ENOENT); everything else stays ECONNREFUSED.
+        let errno_: c_int = if errno == sys::SystemErrno::ENOENT as c_int
+            || errno == sys::SystemErrno::ENOTSOCK as c_int
+            || errno == sys::SystemErrno::EACCES as c_int
+        {
+            errno
         } else {
             sys::SystemErrno::ECONNREFUSED as c_int
         };
         let code_ = if errno == sys::SystemErrno::ENOENT as c_int {
             BunString::static_("ENOENT")
+        } else if errno == sys::SystemErrno::ENOTSOCK as c_int {
+            BunString::static_("ENOTSOCK")
+        } else if errno == sys::SystemErrno::EACCES as c_int {
+            BunString::static_("EACCES")
         } else {
             BunString::static_("ECONNREFUSED")
         };

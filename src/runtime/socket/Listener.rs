@@ -1520,7 +1520,15 @@ fn connect_finish<const IS_SSL: bool>(
     // reads `self.connection` directly so no second borrow is needed here.
     if socket_ref.do_connect().is_err() {
         let errno = if port.is_none() {
-            bun_sys::SystemErrno::ENOENT as c_int
+            // Preserve the real errno from the failed connect(2) on a unix path:
+            // connecting to an existing non-socket file is ENOTSOCK, a
+            // permission-denied path is EACCES, a missing one is ENOENT.
+            let os_errno = bun_sys::last_errno();
+            if os_errno != 0 {
+                os_errno
+            } else {
+                bun_sys::SystemErrno::ENOENT as c_int
+            }
         } else {
             bun_sys::SystemErrno::ECONNREFUSED as c_int
         };
