@@ -1583,6 +1583,17 @@ Socket.prototype._write = function _write(chunk, encoding, callback) {
     return false;
   }
   this._unrefTimer();
+  if (socket.readyState < 0) {
+    // The handle's native socket was already closed (e.g. handle.close() was
+    // called directly): fail the write the way a write(2) on a closed fd does
+    // in Node instead of waiting forever for a drain that never comes.
+    const code = process.platform === "win32" ? "EPIPE" : "EBADF";
+    const er = new Error(`write ${code}`) as Error & { code: string; syscall: string };
+    er.code = code;
+    er.syscall = "write";
+    process.nextTick(callback, er);
+    return false;
+  }
   const success = socket.$write(chunk, encoding);
   this[kBytesWritten] = socket.bytesWritten;
   if (success) {
