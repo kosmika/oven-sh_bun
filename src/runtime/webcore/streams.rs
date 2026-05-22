@@ -544,19 +544,31 @@ impl WritablePending {
 
     /// Drop the pending write's stored future without resolving/rejecting the
     /// JSPromise or invoking the handler. Used on the worker-shutdown path
-    /// where the owning VM is tearing down and the promise's global is no
-    /// longer safe to touch — any resolution would drain microtasks into a
-    /// shutting-down global (see `FileSink::run_pending` and
-    /// `WriteFileWindows::on_finish`). Marks the pending used so subsequent
-    /// `run`/`discard` calls are no-ops; the `JSPromiseStrong` handle slot is
-    /// released by dropping `WritableFuture::Promise`.
+    /// where the owning VM is tearing down: any resolution would drain
+    /// microtasks into a shutting-down global (see `FileSink::run_pending`
+    /// and `bun_runtime::webcore::blob::write_file::windows_impl::WriteFileWindows::on_finish`;
+    /// issue #31224).
+    ///
+    /// Marks the pending `Used` and clears `result`. For the
+    /// `WritableFuture::Promise` variant the extracted future is
+    /// `mem::forget`'d instead of dropped: on Windows worker shutdown the
+    /// JSC `VM` (and its `HandleSet`) may already be freed by the time the
+    /// completion arrives via `Loop::shutdown`'s `uv_run`, so the
+    /// `JSPromiseStrong`'s `Drop` (→ `Bun__StrongRef__delete` →
+    /// `HandleSet::deallocate`) would be a use-after-free. The slot is
+    /// reclaimed wholesale with the VM's heap. `Handler` and `None`
+    /// futures have no JSC state and drop normally.
     pub fn discard(&mut self) {
         if self.state != PendingState::Pending {
             return;
         }
         self.state = PendingState::Used;
         self.result = Writable::Done;
-        self.future = WritableFuture::None;
+        let taken = core::mem::replace(&mut self.future, WritableFuture::None);
+        match &taken {
+            WritableFuture::Promise { .. } => core::mem::forget(taken),
+            WritableFuture::Handler(_) | WritableFuture::None => drop(taken),
+        }
     }
 }
 

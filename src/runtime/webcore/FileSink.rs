@@ -445,11 +445,18 @@ impl FileSink {
             // promise would drain microtasks through a tearing-down worker
             // global (see issue #31224: crash chain was PipeWriter →
             // FileSink::onWrite → JSNextTickQueue::drain on Windows worker
-            // shutdown). Drop the future without touching JSPromise.
+            // shutdown). Discard the pending future and leak the JS wrapper
+            // ref: on Windows `Loop::shutdown`'s `uv_run` can fire this
+            // completion after `WebWorker__teardownJSCVM` has already freed
+            // the JSC `HandleSet`, so `Impl::destroy` (→
+            // `Bun__StrongRef__delete`) on the sink ref would be UAF. The
+            // handle slot is reclaimed with the VM's heap.
             let is_shutting_down = (*this).js_vm().is_some_and(|vm| vm.is_shutting_down());
             if is_shutting_down {
                 (*this).pending.with_mut(|p| p.discard());
-                (*this).js_sink_ref.with_mut(|r| r.deinit());
+                (*this).js_sink_ref.with_mut(|r| {
+                    core::mem::forget(core::mem::take(r));
+                });
                 return;
             }
 
