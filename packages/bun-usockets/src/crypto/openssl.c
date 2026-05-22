@@ -118,6 +118,11 @@ static int us_sni_ex_idx = -1;
 static int us_ctx_cache_ex_idx = -1;
 static int us_ssl_reneg_state_idx = -1;
 static int us_ssl_listener_ex_idx = -1;
+/* Set (to a non-NULL marker) only on SSLs attached to a real us_socket_t via
+ * us_internal_ssl_attach. The new-session callback uses it to ignore SSLs
+ * owned by other engines (the JS-stream SSL wrapper used for TLS-over-duplex)
+ * whose BIOs do not point at the loop's shared BIO data. */
+static int us_ssl_is_socket_ex_idx = -1;
 #ifdef _WIN32
 static INIT_ONCE us_ex_idx_once = INIT_ONCE_STATIC_INIT;
 #else
@@ -145,6 +150,52 @@ static void us_ssl_reneg_state_free(void *parent, void *ptr, CRYPTO_EX_DATA *ad,
   us_free(ptr);
 }
 
+/* A new resumable session is ready (for TLS 1.3, the peer's NewSessionTicket
+ * was just processed; SSL_get_session() right after the handshake only returns
+ * an unresumable placeholder). Serialize it and hand it to the socket's
+ * session callback synchronously, the way Node's NewSessionCallback calls
+ * onnewsession. The callback runs inside SSL_read/SSL_do_handshake, so the
+ * receiving JS handler must only store or emit the buffer. */
+static int us_ssl_new_session_cb(SSL *ssl, SSL_SESSION *session) {
+  /* Only SSLs attached to a real us_socket_t set this marker; for any other
+   * owner (the JS-stream SSL wrapper used for TLS-over-duplex) the BIO's data
+   * is not the loop's shared BIO state and must not be touched. */
+  if (!SSL_get_ex_data(ssl, us_ssl_is_socket_ex_idx)) {
+    return 0;
+  }
+  BIO *rbio = SSL_get_rbio(ssl);
+  if (!rbio) {
+    return 0;
+  }
+  struct loop_ssl_data *loop_ssl_data = (struct loop_ssl_data *)BIO_get_data(rbio);
+  if (!loop_ssl_data) {
+    return 0;
+  }
+  struct us_socket_t *s = loop_ssl_data->ssl_socket;
+  if (!s || us_socket_is_closed(s) || s->ssl != ssl) {
+    return 0;
+  }
+  int length = i2d_SSL_SESSION(session, NULL);
+  if (length <= 0 || length > 65536) {
+    return 0;
+  }
+  unsigned char stack_buf[2048];
+  unsigned char *buf = (unsigned char *)(length <= (int)sizeof(stack_buf) ? stack_buf : malloc((size_t)length));
+  if (!buf) {
+    return 0;
+  }
+  unsigned char *out = buf;
+  int written = i2d_SSL_SESSION(session, &out);
+  if (written == length) {
+    us_dispatch_session(s, buf, length);
+  }
+  if (buf != stack_buf) {
+    free(buf);
+  }
+  /* 0: we serialized a copy; the caller keeps ownership of `session`. */
+  return 0;
+}
+
 /* Defined in Zig (`SSLContextCache.zig`): tombstones the cache entry on
  * SSL_CTX refcount→0 so the per-VM weak SSL_CTX cache learns the pointer is
  * dead without holding a ref of its own. */
@@ -157,6 +208,7 @@ static void us_ex_idx_init(void) {
   us_ctx_cache_ex_idx = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, bun_ssl_ctx_cache_on_free);
   us_ssl_reneg_state_idx = SSL_get_ex_new_index(0, NULL, NULL, NULL, us_ssl_reneg_state_free);
   us_ssl_listener_ex_idx = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
+  us_ssl_is_socket_ex_idx = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
 }
 
 #ifdef _WIN32
@@ -617,6 +669,15 @@ SSL_CTX *us_ssl_ctx_build_raw(struct us_bun_socket_context_options_t options,
     SSL_CTX_set_options(ssl_context, options.secure_options);
   }
 
+  /* Surface resumable sessions through the new-session callback the way Node
+   * does: for TLS 1.3 the resumable session only exists once the peer's
+   * NewSessionTicket arrives, and BoringSSL only exposes it here. NO_INTERNAL
+   * keeps BoringSSL from also caching it. */
+  SSL_CTX_set_session_cache_mode(ssl_context, SSL_SESS_CACHE_CLIENT |
+                                                  SSL_SESS_CACHE_NO_INTERNAL |
+                                                  SSL_SESS_CACHE_NO_AUTO_CLEAR);
+  SSL_CTX_sess_set_new_cb(ssl_context, us_ssl_new_session_cb);
+
   return ssl_context;
 }
 
@@ -664,6 +725,9 @@ void us_internal_ssl_attach(struct us_socket_t *s, SSL_CTX *ctx,
   struct loop_ssl_data *loop_ssl_data = (struct loop_ssl_data *)s->group->loop->data.ssl_data;
 
   SSL *ssl = SSL_new(ctx);
+  if (ssl) {
+    SSL_set_ex_data(ssl, us_ssl_is_socket_ex_idx, (void *)1);
+  }
   SSL_set_bio(ssl, loop_ssl_data->shared_rbio, loop_ssl_data->shared_wbio);
   BIO_up_ref(loop_ssl_data->shared_rbio);
   BIO_up_ref(loop_ssl_data->shared_wbio);

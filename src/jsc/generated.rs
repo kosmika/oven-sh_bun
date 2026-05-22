@@ -197,6 +197,7 @@ pub struct SocketConfigHandlers {
     pub on_end: JSValue,
     pub on_error: JSValue,
     pub on_handshake: JSValue,
+    pub on_session: JSValue,
     pub binary_type: SocketConfigHandlersBinaryType,
 }
 
@@ -212,6 +213,7 @@ struct ExternSocketConfigHandlers {
     onEnd: JSValue,
     onConnectError: JSValue,
     onTimeout: JSValue,
+    onSession: JSValue,
     binary_type: SocketConfigHandlersBinaryType,
 }
 
@@ -239,6 +241,7 @@ impl SocketConfigHandlers {
             on_end: ext.onEnd,
             on_connect_error: ext.onConnectError,
             on_timeout: ext.onTimeout,
+            on_session: ext.onSession,
             binary_type: ext.binary_type,
         }
     }

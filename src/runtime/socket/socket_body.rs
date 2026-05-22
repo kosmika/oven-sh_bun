@@ -1408,6 +1408,61 @@ impl<const SSL: bool> NewSocket<SSL> {
         Ok(())
     }
 
+    /// A new resumable TLS session arrived (the peer's NewSessionTicket was
+    /// just processed inside `SSL_read`). Hands the serialized session to the
+    /// JS `session` handler, mirroring Node's `onnewsession` callback. Runs
+    /// synchronously from inside the SSL processing path, so the JS handler is
+    /// expected to only store/emit the buffer.
+    ///
+    /// # Safety
+    /// `this` points at a live `NewSocket`; JS-thread only.
+    pub unsafe fn on_session(this: *mut Self, session: &[u8]) -> JsResult<()> {
+        jsc::mark_binding!();
+        // SAFETY: per fn contract; shared reborrow only.
+        let this: &Self = unsafe { &*this };
+        if this.socket.get().is_detached() {
+            return Ok(());
+        }
+        let handlers = this.get_handlers();
+        if handlers.vm.is_shutting_down() {
+            return Ok(());
+        }
+        let callback = handlers.on_session;
+        if callback.is_empty() {
+            return Ok(());
+        }
+        let scope = Handlers::enter_ref(handlers);
+        let global = handlers.global_object;
+        let this_value = this.get_this_value(&global);
+        let buffer = match JSValue::create_buffer_from_length(&global, session.len()) {
+            Ok(b) => b,
+            Err(e) => {
+                if scope.exit() {
+                    this.handlers.set(None);
+                }
+                return Err(e);
+            }
+        };
+        if let Some(ab) = buffer.as_array_buffer(&global) {
+            // SAFETY: `ab.ptr` points to a freshly-created `session.len()`-byte
+            // JS buffer kept alive on the stack; `session` is valid for its length.
+            unsafe {
+                core::ptr::copy_nonoverlapping(session.as_ptr(), ab.ptr, session.len());
+            }
+        }
+        let result = match callback.call(&global, this_value, &[this_value, buffer]) {
+            Ok(v) => v,
+            Err(err) => global.take_exception(err),
+        };
+        if let Some(err_value) = result.to_error() {
+            let _ = handlers.call_error_handler(this_value, &[this_value, err_value]);
+        }
+        if scope.exit() {
+            this.handlers.set(None);
+        }
+        Ok(())
+    }
+
     /// `*mut Self` for the same noalias-reentry reason as `on_writable`.
     ///
     /// # Safety

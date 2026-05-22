@@ -23,6 +23,7 @@ export const Handlers = b.dictionary(
     end: { type: b.RawAny, internalName: "onEnd" },
     connectError: { type: b.RawAny, internalName: "onConnectError" },
     timeout: { type: b.RawAny, internalName: "onTimeout" },
+    session: { type: b.RawAny, internalName: "onSession" },
     binaryType: {
       type: BinaryType,
       default: "buffer",

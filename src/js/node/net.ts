@@ -78,6 +78,7 @@ const ksocket = Symbol("ksocket");
 const khandlers = Symbol("khandlers");
 const kclosed = Symbol("closed");
 const kended = Symbol("ended");
+const kpendingSession = Symbol("pendingSession");
 const kwriteCallback = Symbol("writeCallback");
 const kSocketClass = Symbol("kSocketClass");
 
@@ -190,6 +191,18 @@ const SocketHandlers: SocketHandler = {
     // we just reuse the same code but we can push null or enqueue right away
     SocketEmitEndNT(self);
   },
+  // A new resumable TLS session arrived (the peer's NewSessionTicket was just
+  // processed). Mirrors Node's onnewsessionclient: emit once the handshake has
+  // been verified, otherwise park it and emit from the handshake handler.
+  session(socket, session) {
+    const self = socket.data;
+    if (!self) return;
+    if (self._secureEstablished) {
+      self.emit("session", session);
+    } else {
+      self[kpendingSession] = session;
+    }
+  },
   error(socket, error) {
     const self = socket.data;
     if (!self) return;
@@ -279,12 +292,15 @@ const SocketHandlers: SocketHandler = {
     }
     self.emit("secureConnect", verifyError);
     self.removeListener("end", onConnectEnd);
-    // Node fires 'session' from SSL_CTX_sess_set_new_cb. Bun has no native
-    // new-session callback yet, but for TLS 1.2 the NewSessionTicket is part
-    // of the handshake so the session is available now. Emit it here so
-    // `tls.connect(...).once('session', ...)` observes the negotiated ticket.
-    const session = socket.getSession?.();
-    if (session) self.emit("session", session);
+    // For TLS 1.2 the NewSessionTicket is part of the handshake, so the
+    // new-session callback fired before the handshake completed and the
+    // session was parked; deliver it now that 'secureConnect' has been
+    // emitted, the way Node flushes its kPendingSession.
+    const pendingSession = self[kpendingSession];
+    if (pendingSession) {
+      self[kpendingSession] = null;
+      self.emit("session", pendingSession);
+    }
   },
   timeout(socket) {
     const self = socket.data;
@@ -614,6 +630,16 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
     self.push(null);
     self.read(0);
   },
+  // See SocketHandlers.session.
+  session(socket, session) {
+    const { self } = socket.data;
+    if (!self) return;
+    if (self._secureEstablished) {
+      self.emit("session", session);
+    } else {
+      self[kpendingSession] = session;
+    }
+  },
   close(socket, err) {
     $debug("Bun.Socket close");
     let { self } = socket.data;
@@ -668,12 +694,15 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
     }
     self.emit("secureConnect", verifyError);
     self.removeListener("end", onConnectEnd);
-    // Node fires 'session' from SSL_CTX_sess_set_new_cb. Bun has no native
-    // new-session callback yet, but for TLS 1.2 the NewSessionTicket is part
-    // of the handshake so the session is available now. Emit it here so
-    // `tls.connect(...).once('session', ...)` observes the negotiated ticket.
-    const session = socket.getSession?.();
-    if (session) self.emit("session", session);
+    // For TLS 1.2 the NewSessionTicket is part of the handshake, so the
+    // new-session callback fired before the handshake completed and the
+    // session was parked; deliver it now that 'secureConnect' has been
+    // emitted, the way Node flushes its kPendingSession.
+    const pendingSession = self[kpendingSession];
+    if (pendingSession) {
+      self[kpendingSession] = null;
+      self.emit("session", pendingSession);
+    }
   },
   error(socket, error) {
     $debug("Bun.Socket error");
