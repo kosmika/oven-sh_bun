@@ -1413,10 +1413,10 @@ impl<const SSL: bool> NewSocket<SSL> {
     }
 
     /// A new resumable TLS session arrived (the peer's NewSessionTicket was
-    /// just processed inside `SSL_read`). Hands the serialized session to the
-    /// JS `session` handler, mirroring Node's `onnewsession` callback. Runs
-    /// synchronously from inside the SSL processing path, so the JS handler is
-    /// expected to only store/emit the buffer.
+    /// processed during an earlier `SSL_read`). Hands the serialized session
+    /// to the JS `session` handler, mirroring Node's `onnewsession` callback.
+    /// Dispatched from `ssl_flush_pending_session()` after the SSL stack has
+    /// unwound, so the JS handler may safely destroy the socket.
     ///
     /// # Safety
     /// `this` points at a live `NewSocket`; JS-thread only.

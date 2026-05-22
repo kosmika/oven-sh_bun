@@ -220,10 +220,11 @@ pub unsafe extern "C" fn us_dispatch_ssl_raw_tap(
     s
 }
 
-/// A new (resumable) TLS session is ready: BoringSSL's new-session callback
-/// fires synchronously inside `SSL_read`/`SSL_do_handshake` once the peer's
-/// NewSessionTicket has been processed. Mirrors Node's `NewSessionCallback` →
-/// `onnewsession` flow. Only `bun_socket_tls` sockets reach this.
+/// A new (resumable) TLS session is ready. BoringSSL's new-session callback
+/// parks the serialized session while `SSL_read`/`SSL_do_handshake` runs;
+/// `ssl_flush_pending_session()` dispatches it here once that stack has
+/// unwound. Mirrors Node's `NewSessionCallback` → `onnewsession` flow. Only
+/// `bun_socket_tls` sockets reach this.
 ///
 /// # Safety
 /// `openssl.c` must pass a live, non-null `s` whose ext slot holds a valid
