@@ -637,10 +637,7 @@ impl<const SSL: bool> HTTPContext<SSL> {
                 {
                     continue;
                 }
-            } else if SSL
-                && reject_unauthorized
-                && !socket.established_with_reject_unauthorized
-            {
+            } else if SSL && reject_unauthorized && !socket.established_with_reject_unauthorized {
                 continue;
             }
 

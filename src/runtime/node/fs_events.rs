@@ -165,7 +165,6 @@ impl CoreFoundation {
     pub fn get() -> CoreFoundation {
         *FSEVENTS_CF.get_or_init(init_core_foundation)
     }
-
 }
 
 // Clone/Copy: bitwise OK — `handle` is a leaked dlopen handle held for the
@@ -205,7 +204,6 @@ impl CoreServices {
     pub fn get() -> CoreServices {
         *FSEVENTS_CS.get_or_init(init_core_services)
     }
-
 }
 
 // Write-once fn-ptr tables; `OnceLock` provides the one-init + acquire/release

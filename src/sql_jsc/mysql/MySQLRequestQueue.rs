@@ -6,8 +6,8 @@ use bun_sql::mysql::protocol::any_mysql_error::Error as AnyMySQLError;
 use core::cell::Cell;
 use core::ptr::NonNull;
 
-use crate::mysql::js_mysql_query::JSMySQLQuery;
 use crate::mysql::js_mysql_connection::JSMySQLConnection as MySQLConnection;
+use crate::mysql::js_mysql_query::JSMySQLQuery;
 
 bun_core::define_scoped_log!(debug, MySQLRequestQueue, visible);
 

@@ -1223,7 +1223,6 @@ impl Win32Error {
     pub fn from_nt_status(status: NTSTATUS) -> Win32Error {
         Self::from_ntstatus(status)
     }
-
 }
 
 pub type LPDWORD = *mut DWORD;

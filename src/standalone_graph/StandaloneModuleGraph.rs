@@ -889,8 +889,7 @@ pub(crate) fn to_bytes(
     };
 
     #[cfg(debug_assertions)]
-    {
-    }
+    {}
 
     // TODO(port): StringBuilder owns the buffer; return it as Vec<u8>.
     Ok(output_bytes.to_vec())

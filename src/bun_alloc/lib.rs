@@ -1604,9 +1604,7 @@ pub fn bss_lazy_bytes(size: usize, align: usize) -> NonNull<u8> {
         bss_arena_bump(size, align)
     };
     #[cfg(not(unix))]
-    let ptr = {
-        mimalloc::mi_zalloc_aligned(size, align).cast::<u8>()
-    };
+    let ptr = { mimalloc::mi_zalloc_aligned(size, align).cast::<u8>() };
     NonNull::new(ptr).expect("OOM")
 }
 

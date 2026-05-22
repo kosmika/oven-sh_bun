@@ -164,7 +164,6 @@ const _: () = {
     }
 
     bun_jsc::impl_js_class_via_generated!(for<'a> Subprocess<'a> => crate::generated_classes::js_Subprocess, no_constructor);
-
 };
 
 impl<'a> Subprocess<'a> {

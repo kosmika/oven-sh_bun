@@ -10,20 +10,20 @@ use std::rc::Rc;
 use bun_collections::LinearFifo;
 use bun_collections::linear_fifo::DynamicBuffer;
 use bun_core::MutableString;
+use bun_jsc::virtual_machine::VirtualMachine;
 use bun_jsc::{
     self as jsc, CallFrame, GlobalRef, JSGlobalObject, JSValue, JsCell, JsResult, ProtectedJSValue,
     StrongOptional, SystemError, bun_string_jsc,
 };
-use bun_jsc::virtual_machine::VirtualMachine;
 // `ZigString` re-exports `bun_core::ZigString`; JSC-side methods
 // (`to_js`, `with_encoding`, …) come from the `ZigStringJsc` extension trait.
-use bun_jsc::ZigStringJsc as _;
-use bun_jsc::zig_string::ZigString;
 use crate::webcore::response::HeadersRef;
 use crate::webcore::streams::{self, Signal, StreamResult, Writable};
 use crate::webcore::{self, Response};
 use bun_core::String as BunString;
+use bun_jsc::ZigStringJsc as _;
 use bun_jsc::call_frame::ArgumentsSlice;
+use bun_jsc::zig_string::ZigString;
 use bun_lolhtml_sys::lol_html as lolhtml;
 use bun_lolhtml_sys::lol_html as lolhtml_sys;
 use bun_lolhtml_sys::lol_html::Opaque as _;

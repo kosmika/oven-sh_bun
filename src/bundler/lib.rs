@@ -243,7 +243,6 @@ pub mod options {
     /// `FrameworkRouterPair`). The full struct is `bun.bake.Framework` which
     /// lives in a higher-tier crate; minimal real struct lives in `bake_types`.
     pub use crate::bake_types::Framework;
-
 }
 
 pub use cache::RuntimeTranspilerCacheExt;

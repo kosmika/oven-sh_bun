@@ -217,7 +217,6 @@ impl AbortReason {
             AbortReason::Js(value) => value,
         }
     }
-
 }
 
 #[repr(C)]

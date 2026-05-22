@@ -19,10 +19,10 @@ use bun_threading::{WaitGroup, thread_pool as ThreadPoolLib};
 use crate::bake_types as bake;
 
 use crate::BundledAst as JSAst;
+use crate::Index;
 use bun_ast::{
     Binding, DeclaredSymbol, Dependency, ExportsKind, Expr, NamedImport, Part, Ref, Stmt, TlaCheck,
 };
-use crate::Index;
 use bun_ast::{E, G, S};
 use bun_js_parser::lexer as lex;
 use bun_js_printer::{self as js_printer, renamer};
@@ -331,8 +331,7 @@ impl<'a> LinkerContext<'a> {
     }
 
     #[inline]
-    pub fn check_for_memory_corruption(&self) {
-    }
+    pub fn check_for_memory_corruption(&self) {}
 }
 
 #[allow(non_snake_case)]

@@ -466,44 +466,32 @@ impl DateTime {
 
     pub fn from_binary(val: &[u8]) -> DateTime {
         match val.len() {
-            4 => {
-                DateTime {
-                    year: u16::from_le_bytes(
-                        val[0..2].try_into().expect("infallible: size matches"),
-                    ),
-                    month: val[2],
-                    day: val[3],
-                    ..Default::default()
-                }
-            }
-            7 => {
-                DateTime {
-                    year: u16::from_le_bytes(
-                        val[0..2].try_into().expect("infallible: size matches"),
-                    ),
-                    month: val[2],
-                    day: val[3],
-                    hour: val[4],
-                    minute: val[5],
-                    second: val[6],
-                    ..Default::default()
-                }
-            }
-            11 => {
-                DateTime {
-                    year: u16::from_le_bytes(
-                        val[0..2].try_into().expect("infallible: size matches"),
-                    ),
-                    month: val[2],
-                    day: val[3],
-                    hour: val[4],
-                    minute: val[5],
-                    second: val[6],
-                    microsecond: u32::from_le_bytes(
-                        val[7..11].try_into().expect("infallible: size matches"),
-                    ),
-                }
-            }
+            4 => DateTime {
+                year: u16::from_le_bytes(val[0..2].try_into().expect("infallible: size matches")),
+                month: val[2],
+                day: val[3],
+                ..Default::default()
+            },
+            7 => DateTime {
+                year: u16::from_le_bytes(val[0..2].try_into().expect("infallible: size matches")),
+                month: val[2],
+                day: val[3],
+                hour: val[4],
+                minute: val[5],
+                second: val[6],
+                ..Default::default()
+            },
+            11 => DateTime {
+                year: u16::from_le_bytes(val[0..2].try_into().expect("infallible: size matches")),
+                month: val[2],
+                day: val[3],
+                hour: val[4],
+                minute: val[5],
+                second: val[6],
+                microsecond: u32::from_le_bytes(
+                    val[7..11].try_into().expect("infallible: size matches"),
+                ),
+            },
             _ => panic!("Invalid datetime length: {}", val.len()),
             // TODO(port): Zig used bun.Output.panic; confirm bun_core panic helper
         }

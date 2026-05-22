@@ -783,9 +783,7 @@ pub(crate) unsafe fn construct_from_u16<const ENCODING: u8>(
             to
         }
         // string is already encoded, just need to copy the data
-        Encoding::Ucs2 | Encoding::Utf16le => {
-            bytemuck::cast_slice::<u16, u8>(input_slice).to_vec()
-        }
+        Encoding::Ucs2 | Encoding::Utf16le => bytemuck::cast_slice::<u16, u8>(input_slice).to_vec(),
 
         Encoding::Hex => {
             if len < 2 {

@@ -681,10 +681,12 @@ impl BuildCommand {
             let writer = Output::writer_buffered();
             let mut output_dir: &[u8] = &opt_output_dir;
 
-            let will_be_one_file =
-                ctx.bundler_options.compile
-                    || (output_files.len() == 1
-                        && matches!(output_files[0].value, options::OutputFileValue::Buffer { .. }));
+            let will_be_one_file = ctx.bundler_options.compile
+                || (output_files.len() == 1
+                    && matches!(
+                        output_files[0].value,
+                        options::OutputFileValue::Buffer { .. }
+                    ));
 
             if output_dir.is_empty() && !outfile.is_empty() && will_be_one_file {
                 output_dir = bun_core::dirname(outfile).unwrap_or(b".");

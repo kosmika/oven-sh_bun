@@ -2612,8 +2612,7 @@ impl<'bump, const ENCODING: StringEncoding> Lexer<'bump, ENCODING> {
                         continue;
                     }
                 }
-            }
-            else if !escaped {
+            } else if !escaped {
                 let mut fell_through = false;
                 'escaped: {
                     match char {

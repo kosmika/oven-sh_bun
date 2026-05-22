@@ -5,12 +5,12 @@ use bun_jsc::{
     ComptimeStringMapExt as _, JSGlobalObject, JSValue, JsError, JsResult, StringJsc as _,
 };
 
+use bun_dns::OptionsFromJsError as FromJSError;
 use bun_dns::{
     BACKEND_LABEL, Backend, FAMILY_MAP, Family, GetAddrInfoResult as GaiResult, Options,
     PROTOCOL_MAP, Protocol, ResultAny, SOCKET_TYPE_MAP, SocketType,
 };
 use bun_dns::{addr_info_count, address_to_string};
-use bun_dns::OptionsFromJsError as FromJSError;
 
 #[inline]
 fn js<T>(r: JsResult<T>) -> Result<T, FromJSError> {

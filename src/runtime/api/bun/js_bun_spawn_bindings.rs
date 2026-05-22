@@ -1328,15 +1328,16 @@ pub(crate) fn spawn_maybe_sync<const IS_SYNC: bool>(
         {
             use crate::node::MaybeExt as _;
             let idx = usize::try_from(ipc_channel).expect("int cast");
-            let ipc_pipe: *mut bun_libuv_sys::Pipe = subprocess.stdio_pipes.with_mut(|pipes| {
-                match core::mem::take(&mut pipes[idx]) {
-                    spawn::WindowsStdioResult::Buffer(pipe) => bun_core::heap::into_raw(pipe),
-                    other => {
-                        pipes[idx] = other;
-                        unreachable!("IPC channel stdio is not a buffer pipe");
-                    }
-                }
-            });
+            let ipc_pipe: *mut bun_libuv_sys::Pipe =
+                subprocess
+                    .stdio_pipes
+                    .with_mut(|pipes| match core::mem::take(&mut pipes[idx]) {
+                        spawn::WindowsStdioResult::Buffer(pipe) => bun_core::heap::into_raw(pipe),
+                        other => {
+                            pipes[idx] = other;
+                            unreachable!("IPC channel stdio is not a buffer pipe");
+                        }
+                    });
             // PROVENANCE: `windows_configure_server` STORES the `*mut SendQueue`
             // in `uv_handle_t.data` for the pipe's lifetime, so it takes a raw
             // pointer (not `&mut self`) — see its safety doc. NOTE: this still

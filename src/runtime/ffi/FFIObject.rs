@@ -765,8 +765,8 @@ macro_rules! wrap_host_fn {
 }
 
 mod fields {
-    use super::*;
     use super::super::ffi_body::FFI as FfiImpl;
+    use super::*;
 
     // viewSource → FFI::print(global, JSValue, ?JSValue) -> JsResult<JSValue>
     pub(super) fn view_source(global: &JSGlobalObject, callframe: &CallFrame) -> JsResult<JSValue> {

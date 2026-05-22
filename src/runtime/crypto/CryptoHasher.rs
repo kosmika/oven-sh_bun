@@ -753,7 +753,6 @@ impl CryptoHasher {
             CryptoHasher::Zig(inner) => Ok(inner.with_mut(move |z| z.final_(output_digest_slice))),
         }
     }
-
 }
 
 // ───────────────────────────────────────────────────────────────────────────

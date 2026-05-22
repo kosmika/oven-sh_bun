@@ -125,7 +125,6 @@ impl Tag {
     /// Number of variants. Mirrors `enum_map::Enum::LENGTH` so const-array
     /// tables below can size themselves without naming the trait at every use.
     pub const COUNT: usize = <Self as Enum>::LENGTH;
-
 }
 
 /// `.rodata` flag table indexed by [`Tag`] discriminant. These tables cost zero

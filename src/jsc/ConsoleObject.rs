@@ -5135,8 +5135,7 @@ pub mod formatter {
                                     // count_without_children is necessary to prevent
                                     // printing an extra newline if there are children
                                     // and one prop and the child prop is the last prop
-                                    props_i + 1 < count_without_children
-                                    && props_i > 3
+                                    props_i + 1 < count_without_children && props_i > 3
                                 )
                             {
                                 writer.write_all(b"\n");
@@ -5477,8 +5476,8 @@ pub mod formatter {
 
             writer.print(format_args!("({}) [ ", array_buffer.len));
 
-            use jsc::JSType as T;
             use bytemuck::cast_slice;
+            use jsc::JSType as T;
             match js_type {
                 T::Int8Array => Self::write_typed_array::<i8, C>(&mut writer, cast_slice(slice)),
                 T::Int16Array => Self::write_typed_array::<i16, C>(&mut writer, cast_slice(slice)),

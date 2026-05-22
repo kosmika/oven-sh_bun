@@ -101,9 +101,9 @@ impl core::fmt::Display for SystemError {
         }
     }
 }
-pub mod walker_skippable;
 #[path = "copy_file.rs"]
 pub mod copy_file;
+pub mod walker_skippable;
 
 // `std.fs.Dir.Entry.Kind` — same set as `bun_core::FileKind`.
 pub use bun_core::FileKind as EntryKind;
@@ -7380,10 +7380,10 @@ pub mod posix {
     pub const INET6_ADDRSTRLEN: usize = 46;
 
     // ── sockaddr family (Zig: `std.posix.sockaddr`) ──
-    #[cfg(unix)]
-    pub use libc::{sockaddr, sockaddr_in, sockaddr_in6, sockaddr_storage};
     #[cfg(windows)]
     pub use bun_libuv_sys::{sockaddr, sockaddr_in, sockaddr_in6, sockaddr_storage};
+    #[cfg(unix)]
+    pub use libc::{sockaddr, sockaddr_in, sockaddr_in6, sockaddr_storage};
 
     // ── access(2) mode bits (Zig: `std.posix.F_OK` etc.) ──
     // POSIX-standard values; libuv re-uses the same numbers on Windows

@@ -286,7 +286,6 @@ impl<Ts: TypeList> TaggedPtrUnion<Ts> {
     pub fn is_null(self) -> bool {
         self.repr.ptr_bits() == 0
     }
-
 }
 
 // ported from: src/ptr/tagged_pointer.zig

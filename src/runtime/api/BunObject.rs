@@ -398,7 +398,6 @@ pub mod bun_object {
     // --- LazyProperty initializers ---
     // (BunObject__createBunStdin / Stderr / Stdout exported at file scope below.)
     // --- LazyProperty initializers ---
-
 }
 
 pub(crate) fn get_cron_object(global_this: &JSGlobalObject, obj: &JSObject) -> JSValue {

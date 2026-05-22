@@ -1194,7 +1194,6 @@ impl BufferReadStream {
             }
         }
     }
-
 }
 
 impl Drop for BufferReadStream {

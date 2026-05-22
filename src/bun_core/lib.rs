@@ -565,12 +565,12 @@ pub mod build_options {
 }
 
 // ── re-exports (the tier-0 surface downstream crates need) ────────────────
+pub use Global::*;
 pub use bun_alloc::oom_from_alloc;
 pub use bun_alloc::{
     Alignment, AllocError, Allocator, is_slice_in_buffer, is_slice_in_buffer_t, out_of_memory,
     page_size, range_of_slice_in_buffer,
 };
-pub use Global::*;
 pub use bun_opaque::{FfiLayout, assert_ffi_discr, assert_ffi_layout};
 pub use ffi::{Zeroable, boxed_zeroed, boxed_zeroed_unchecked};
 pub use result::*;

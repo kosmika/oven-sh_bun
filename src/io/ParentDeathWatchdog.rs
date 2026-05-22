@@ -275,8 +275,7 @@ pub fn install_on_event_loop(handle: EventLoopCtx) {
             crate::file_poll::Pollable::Process,
             true,
         ) {
-            bun_sys::Result::Ok(()) => {
-            }
+            bun_sys::Result::Ok(()) => {}
             Err(err) => {
                 // ESRCH: parent already gone before we registered — treat as fired.
                 if err.get_errno() == bun_sys::E::ESRCH {

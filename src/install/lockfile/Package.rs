@@ -12,20 +12,20 @@ use bun_semver::{self as semver, ExternalString, String, Version as SemverVersio
 
 use crate::bun_json::{Expr, ExprData};
 use crate::dependency::{Behavior, DependencyExt as _, TagExt as _};
+use crate::lockfile_real as lockfile;
+use crate::lockfile_real::{
+    Cloner, DependencySlice, Lockfile, PackageIDSlice, PatchedDep, PendingResolution,
+    PositionalStream, Stream, StringBuilder, TrustedDependenciesSet,
+};
 use crate::repository::RepositoryExt as _;
+use crate::resolution_real::{ResolutionType, Tag as ResolutionTag, TaggedValue};
+use crate::versioned_url::VersionedURLType;
 use crate::{
     self as install, Aligner, Bin, Dependency, ExternalStringList, ExternalStringMap, Features,
     Npm, PackageID, PackageJSON, PackageManager, PackageNameHash, Repository,
     TruncatedPackageNameHash, UpdateRequest, bin, default_trusted_dependencies, dependency,
     initialize_store, invalid_package_id,
 };
-use crate::lockfile_real as lockfile;
-use crate::lockfile_real::{
-    Cloner, DependencySlice, Lockfile, PackageIDSlice, PatchedDep, PendingResolution,
-    PositionalStream, Stream, StringBuilder, TrustedDependenciesSet,
-};
-use crate::resolution_real::{ResolutionType, Tag as ResolutionTag, TaggedValue};
-use crate::versioned_url::VersionedURLType;
 
 #[path = "Package/Meta.rs"]
 pub mod meta;

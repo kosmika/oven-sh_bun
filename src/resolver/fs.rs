@@ -544,7 +544,6 @@ impl<'a> EntryLookup<'a> {
         // SAFETY: ARENA — EntryStore-owned slot; see fn doc.
         unsafe { &*self.entry }
     }
-
 }
 
 /// Port of `FileSystem.DirEntry` namespace items (`EntryMap`, `EntryStore`, `Err`).

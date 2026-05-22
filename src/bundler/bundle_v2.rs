@@ -12,16 +12,16 @@ use bun_core::ThreadLock;
 // `bake_types` / `dispatch` are canonically defined in `bv2_impl` below
 // (the full versions); re-exported here so the crate-root `lib.rs` modules and
 // the outer `BundleV2` struct see exactly the same types as the impl bodies.
-pub use bv2_impl::api;
-pub use bv2_impl::bake_types;
-pub use bv2_impl::dispatch;
-pub use bv2_impl::{DevServerInput, DevServerOutput, ImportTrackerIterator, ImportTrackerStatus};
 pub use crate::ungate_support::entry_point::{
     EntryPoint, Kind as EntryPointKind, List as EntryPointList,
 };
 pub use crate::ungate_support::{
     ExportData, ImportData, ImportTracker, JSMeta, generic_path_with_pretty_initialized,
 };
+pub use bv2_impl::api;
+pub use bv2_impl::bake_types;
+pub use bv2_impl::dispatch;
+pub use bv2_impl::{DevServerInput, DevServerOutput, ImportTrackerIterator, ImportTrackerStatus};
 // Flatten the impl-body module into this file's namespace so external callers
 // (`bun_runtime::cli::*`, `linker_context::*`) reference items as
 // `bundle_v2::Foo` rather than naming the implementation submodule.

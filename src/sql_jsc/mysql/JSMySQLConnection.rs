@@ -21,11 +21,11 @@ use bun_sql::mysql::ssl_mode::SSLMode;
 use bun_uws::{self as uws, AnySocket, NewSocketHandler, SocketTCP};
 
 use super::js_mysql_query::JSMySQLQuery;
-use crate::mysql::protocol::any_mysql_error_jsc::mysql_error_to_js;
-use crate::mysql::protocol::error_packet_jsc::ErrorPacketJsc;
 use super::my_sql_connection::{self as my_sql_connection};
 use super::my_sql_statement::MySQLStatement;
 use super::protocol::result_set::{self as ResultSet};
+use crate::mysql::protocol::any_mysql_error_jsc::mysql_error_to_js;
+use crate::mysql::protocol::error_packet_jsc::ErrorPacketJsc;
 
 bun_core::declare_scope!(MySQLConnection, visible);
 

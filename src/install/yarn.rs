@@ -1,18 +1,18 @@
 use bun_collections::VecExt;
 use std::io::Write as _;
 
-use bun_collections::{HashMap, StringHashMap};
-use bun_core::Error;
-use bun_install::bin::Bin;
-use bun_install::dependency::{self, Dependency, DependencyExt as _};
-use bun_install::install::{self, DependencyID, PackageID, PackageManager};
-use bun_install::integrity::Integrity;
 use crate::Origin;
 use crate::lockfile_real::package::meta::HasInstallScript;
 use crate::lockfile_real::package::{
     Meta as PackageMeta, Package as LockfilePackage, PackageColumns as _,
 };
 use crate::lockfile_real::{self as lockfile, LoadResult, Lockfile, tree, tree::Tree};
+use bun_collections::{HashMap, StringHashMap};
+use bun_core::Error;
+use bun_install::bin::Bin;
+use bun_install::dependency::{self, Dependency, DependencyExt as _};
+use bun_install::install::{self, DependencyID, PackageID, PackageManager};
+use bun_install::integrity::Integrity;
 use bun_install::npm;
 // PORT NOTE: `Package.resolution` is the file-backed `resolution_real::ResolutionType<u64>`
 // (tag + zero-padded `Value` union), constructed via `init(TaggedValue::*)`; the

@@ -456,7 +456,6 @@ pub fn scan_imports_and_exports(
                 &mut reachable[..],
             );
         }
-
     }
 
     if FeatureFlags::HELP_CATCH_MEMORY_ISSUES {

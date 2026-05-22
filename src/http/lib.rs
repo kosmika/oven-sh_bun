@@ -647,8 +647,8 @@ use bun_collections::ArrayHashMap;
 use bun_core::StringBuilder;
 use bun_core::{FeatureFlags, Global, Output, err};
 use bun_core::{OwnedString, String as BunString, Tag as BunStringTag, immutable as strings};
-use bun_uws as uws;
 use bun_http_types::ETag::StringPointer;
+use bun_uws as uws;
 use bun_wyhash::Wyhash11 as Wyhash;
 
 use crate::http_context::HTTPSocket as HttpSocket;

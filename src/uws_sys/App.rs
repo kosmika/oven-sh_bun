@@ -372,7 +372,6 @@ impl<const SSL: bool> App<SSL> {
             )
         }
     }
-
 }
 
 #[repr(C)]

@@ -1,8 +1,8 @@
 // maybe rename to `PackageJSONCache` if we cache more than workspaces
 
+use crate::bun_json::Expr;
 use bun_collections::StringHashMap;
 use bun_core::Error;
-use crate::bun_json::Expr;
 // LAYERING: `Indentation` lives in `bun_ast::js_printer` (T2, MOVE_DOWN from
 // `bun_js_printer::PrintJsonOptions` see no mismatch.
 use bun_ast::Indentation;

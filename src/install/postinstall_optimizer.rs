@@ -1,8 +1,8 @@
 use bun_collections::VecExt;
 use std::sync::LazyLock;
 
-use bun_collections::ArrayHashMap;
 use bun_ast as js_ast;
+use bun_collections::ArrayHashMap;
 use bun_semver as semver;
 
 use crate::lockfile::package::Meta;
@@ -197,7 +197,6 @@ impl List {
             PostinstallOptimizer::NativeBinlink => {
                 // TODO: support hoisted.
                 (tree_id.is_none() || tree_id.unwrap() == 0)
-
                     && PostinstallOptimizer::get_native_binlink_replacement_package_id(
                         resolutions,
                         metas,

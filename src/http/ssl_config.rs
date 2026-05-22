@@ -570,9 +570,10 @@ pub mod global_registry {
         }
         // Zig: `getIndexContext` then pointer-identity check. We never
         // dereference stored weaks here — only compare `Weak::as_ptr`.
-        let Some(idx) = configs.iter().position(|(h, weak)| {
-            (hash == 0 || *h == hash) && Weak::as_ptr(weak) == self_ptr
-        }) else {
+        let Some(idx) = configs
+            .iter()
+            .position(|(h, weak)| (hash == 0 || *h == hash) && Weak::as_ptr(weak) == self_ptr)
+        else {
             return;
         };
         let (_, weak) = configs.swap_remove(idx);

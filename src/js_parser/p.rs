@@ -3527,7 +3527,6 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
         if children.slice()[last as usize] != to_discard {
             self.panic("Internal error", format_args!(""));
         }
-
     }
 
     // blocked_on: S::Import field set; crate::parser::MacroRefData; ParsedPath fields; ImportItemForNamespaceMap API

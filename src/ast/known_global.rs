@@ -284,9 +284,7 @@ impl KnownGlobal {
                 // Just remove 'new' for Function
                 Some(Self::call_from_new(e, loc))
             }
-            KnownGlobal::RegExp => {
-                None
-            }
+            KnownGlobal::RegExp => None,
             KnownGlobal::WeakSet | KnownGlobal::WeakMap => {
                 let n = e.args.len_u32();
 

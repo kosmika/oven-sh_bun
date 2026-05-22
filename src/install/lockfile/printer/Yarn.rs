@@ -5,14 +5,14 @@ use bun_collections::HashMap;
 use bun_core::strings;
 use bun_semver::String as SemverString;
 
+use crate::integrity;
+use crate::lockfile_real::Printer;
 use crate::lockfile_real::package::Alphabetizer;
 use bun_install::Dependency;
 use bun_install::PackageID;
 use bun_install::Resolution;
 use bun_install::dependency::{self, Behavior, VersionExt as _};
 use bun_install::lockfile::package;
-use crate::integrity;
-use crate::lockfile_real::Printer;
 
 // TODO(port): narrow error set (only writer + alloc errors are produced)
 pub fn print(this: &mut Printer, writer: &mut impl bun_io::Write) -> Result<(), bun_core::Error> {

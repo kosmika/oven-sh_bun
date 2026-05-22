@@ -38,7 +38,6 @@ impl CookieMap {
             CookieMap__write(self, global_this, kind, uws_http_response)
         })
     }
-
 }
 
 #[repr(transparent)]

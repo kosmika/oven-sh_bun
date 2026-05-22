@@ -417,9 +417,7 @@ impl<V: CalcValue> Calc<V> {
                 Self::parse_math_fn(
                     i,
                     (),
-                    |_, a, b| {
-                        a - b * (a / b).floor()
-                    },
+                    |_, a, b| a - b * (a / b).floor(),
                     |_, a, b| MathFunction::Rem {
                         dividend: a,
                         divisor: b,

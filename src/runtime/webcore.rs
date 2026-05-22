@@ -308,9 +308,6 @@ pub use form_data::{AsyncFormData, FormData};
 pub mod script_execution_context;
 
 #[doc(hidden)]
-#[path = "webcore/s3/multipart_options.rs"]
-pub mod multipart_options_impl;
-#[doc(hidden)]
 #[path = "webcore/s3/client.rs"]
 pub mod __s3_client;
 #[doc(hidden)]
@@ -328,6 +325,9 @@ pub mod __s3_multipart;
 #[doc(hidden)]
 #[path = "webcore/s3/simple_request.rs"]
 pub mod __s3_simple_request;
+#[doc(hidden)]
+#[path = "webcore/s3/multipart_options.rs"]
+pub mod multipart_options_impl;
 pub mod s3 {
     pub use super::multipart_options_impl as multipart_options;
     pub use super::multipart_options_impl::MultiPartUploadOptions;

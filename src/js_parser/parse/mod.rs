@@ -1316,9 +1316,7 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
         }
 
         if !p.lexer.has_newline_before
-            && (
-                p.lexer.is_contextual_keyword(b"assert") || p.lexer.token == T::TWith
-            )
+            && (p.lexer.is_contextual_keyword(b"assert") || p.lexer.token == T::TWith)
         {
             p.lexer.next()?;
             p.lexer.expect(T::TOpenBrace)?;

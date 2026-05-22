@@ -348,23 +348,21 @@ fn mkdir_recursive_os_path(fullpath: &bun_core::WStr) -> sys::Maybe<()> {
                     working_mem[usize::from(i)] = bun_paths::SEP_WINDOWS as u16;
                     break;
                 }
-                Err(err) => {
-                    match err.get_errno() {
-                        E::EEXIST => {
-                            let mut tmp = bun_paths::path_buffer_pool::get();
-                            let narrow = strings::from_wpath(&mut tmp[..], parent.as_slice());
-                            if let Ok(false) = sys::directory_exists_at(Fd::INVALID, narrow) {
-                                return Err(sys::Error::from_code(E::ENOTDIR, sys::Tag::mkdir));
-                            }
-                            working_mem[usize::from(i)] = bun_paths::SEP_WINDOWS as u16;
-                            break;
+                Err(err) => match err.get_errno() {
+                    E::EEXIST => {
+                        let mut tmp = bun_paths::path_buffer_pool::get();
+                        let narrow = strings::from_wpath(&mut tmp[..], parent.as_slice());
+                        if let Ok(false) = sys::directory_exists_at(Fd::INVALID, narrow) {
+                            return Err(sys::Error::from_code(E::ENOTDIR, sys::Tag::mkdir));
                         }
-                        E::ENOENT => {
-                            working_mem[usize::from(i)] = bun_paths::SEP_WINDOWS as u16;
-                        }
-                        _ => return Err(err),
+                        working_mem[usize::from(i)] = bun_paths::SEP_WINDOWS as u16;
+                        break;
                     }
-                }
+                    E::ENOENT => {
+                        working_mem[usize::from(i)] = bun_paths::SEP_WINDOWS as u16;
+                    }
+                    _ => return Err(err),
+                },
             }
         }
         i -= 1;

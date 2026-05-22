@@ -260,16 +260,24 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
                                     // if it's not a trivial object literal, de-opt
                                     if prop.kind != G::PropertyKind::Normal
                                         || prop.key.is_none()
-                                        || !matches!(prop.key.expect("infallible: prop has key").data, js_ast::ExprData::EString(_))
+                                        || !matches!(
+                                            prop.key.expect("infallible: prop has key").data,
+                                            js_ast::ExprData::EString(_)
+                                        )
                                         || prop.flags.contains(Flags::Property::IsMethod)
                                         || prop.flags.contains(Flags::Property::IsComputed)
                                         || prop.flags.contains(Flags::Property::IsSpread)
                                         || prop.flags.contains(Flags::Property::IsStatic)
-                                        || match prop.value.expect("infallible: prop has value").data {
+                                        || match prop
+                                            .value
+                                            .expect("infallible: prop has value")
+                                            .data
+                                        {
                                             js_ast::ExprData::ECommonjsExportIdentifier(_)
                                             | js_ast::ExprData::EImportIdentifier(_)
                                             | js_ast::ExprData::EIdentifier(_) => false,
-                                            js_ast::ExprData::ECall(call) => match call.target.data {
+                                            js_ast::ExprData::ECall(call) => match call.target.data
+                                            {
                                                 js_ast::ExprData::ECommonjsExportIdentifier(_)
                                                 | js_ast::ExprData::EImportIdentifier(_)
                                                 | js_ast::ExprData::EIdentifier(_) => false,
@@ -279,7 +287,9 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
                                                     )
                                                 }
                                             },
-                                            _ => !Expr::is_primitive_literal(&prop.value.expect("infallible: prop has value")),
+                                            _ => !Expr::is_primitive_literal(
+                                                &prop.value.expect("infallible: prop has value"),
+                                            ),
                                         }
                                     {
                                         p.deoptimize_common_js_named_exports();

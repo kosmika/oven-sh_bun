@@ -1007,7 +1007,6 @@ impl WebWorker {
         bun_core::delete_all_pools_for_thread_exit();
         bun_uws::on_thread_exit();
         drop(arena.take());
-
     }
 
     pub fn exit(&self) {

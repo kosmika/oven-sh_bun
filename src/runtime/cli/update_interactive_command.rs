@@ -6,7 +6,10 @@ use std::io::Write as _;
 use bstr::BStr;
 
 use bun_alloc::Arena as Bump;
+use bun_ast::Loc;
+use bun_ast::{self, E, Expr, expr as js_expr};
 use bun_collections::StringHashMap;
+use bun_core::strings;
 use bun_core::{Global, Output};
 use bun_glob as glob;
 use bun_install::dependency::{self, Behavior};
@@ -22,11 +25,8 @@ use bun_install::{
 };
 use bun_install_types::DependencyGroup;
 use bun_js_printer::{self as js_printer, BufferPrinter, BufferWriter, PrintJsonOptions};
-use bun_resolver::fs::FileSystem;
-use bun_ast::Loc;
-use bun_ast::{self, E, Expr, expr as js_expr};
-use bun_core::strings;
 use bun_paths::{self as path, PathBuffer};
+use bun_resolver::fs::FileSystem;
 use bun_semver::{self as semver, SlicedString};
 
 use crate::Command;

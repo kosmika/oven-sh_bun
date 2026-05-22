@@ -624,9 +624,7 @@ impl TaskError {
             TaskError::SymlinkDependencies(err) => TaskError::SymlinkDependencies(err.clone()),
             TaskError::Binaries(err) => TaskError::Binaries(*err),
             TaskError::RunScripts(err) => TaskError::RunScripts(*err),
-            TaskError::Patching(_log) => {
-                TaskError::Patching(Log::init())
-            }
+            TaskError::Patching(_log) => TaskError::Patching(Log::init()),
             TaskError::Download(dl) => TaskError::Download(DownloadError {
                 err: dl.err,
                 url: dl.url.clone(),

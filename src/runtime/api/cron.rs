@@ -16,8 +16,14 @@ use core::ffi::c_char;
 use std::cell::Cell;
 
 #[cfg(not(windows))]
+use crate::api::bun::process::SpawnResultExt as _;
+use crate::api::bun::process::{self as spawn, Process, Rusage, SpawnOptions, Status};
+use crate::timer::{EventLoopTimer, EventLoopTimerState, EventLoopTimerTag};
+use bun_core::ZStr;
+#[cfg(not(windows))]
 use bun_core::env_var;
 use bun_io::BufferedReader as OutputReader;
+use bun_io::pipe_reader::BufferedReaderParent;
 use bun_io::{KeepAlive, Loop as AsyncLoop};
 use bun_jsc::virtual_machine::{HOT_RELOAD_HOT, VirtualMachine};
 use bun_jsc::{
@@ -30,12 +36,6 @@ use bun_paths::{self as path};
 use bun_resolver::fs::FileSystem;
 #[cfg(not(target_os = "macos"))]
 use bun_resolver::fs::RealFS;
-#[cfg(not(windows))]
-use crate::api::bun::process::SpawnResultExt as _;
-use crate::api::bun::process::{self as spawn, Process, Rusage, SpawnOptions, Status};
-use crate::timer::{EventLoopTimer, EventLoopTimerState, EventLoopTimerTag};
-use bun_core::ZStr;
-use bun_io::pipe_reader::BufferedReaderParent;
 #[cfg(target_os = "macos")]
 use bun_sys::FdDirExt as _;
 // Owned NUL-terminated string (Zig `[:0]u8` allocation) — `bun_str` exposes the

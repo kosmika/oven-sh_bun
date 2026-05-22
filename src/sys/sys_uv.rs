@@ -8,10 +8,10 @@ use bstr::BStr;
 
 use bun_core::ZStr;
 
+use crate::ReturnCodeExt;
 use crate::Tag;
 use crate::windows::libuv as uv;
 use crate::{E, Fd, FdExt, Mode, PlatformIOVec, PlatformIOVecConst, Stat, StatFS};
-use crate::ReturnCodeExt;
 
 /// `Maybe(T)` from Zig.
 type Result<T> = crate::Result<T>;

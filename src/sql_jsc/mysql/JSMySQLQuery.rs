@@ -14,10 +14,10 @@ use bun_sql::postgres::command_tag::CommandTag;
 use bun_sql::shared::sql_query_result_mode::SQLQueryResultMode;
 
 use super::js_mysql_connection::MySQLConnection;
-use crate::mysql::protocol::any_mysql_error_jsc::mysql_error_to_js;
-use crate::postgres::command_tag_jsc::CommandTagJsc as _;
 use super::my_sql_query::MySQLQuery;
 use super::my_sql_statement::MySQLStatement;
+use crate::mysql::protocol::any_mysql_error_jsc::mysql_error_to_js;
+use crate::postgres::command_tag_jsc::CommandTagJsc as _;
 
 bun_core::define_scoped_log!(debug, MySQLQuery);
 

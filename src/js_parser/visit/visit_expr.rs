@@ -84,8 +84,7 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
     // In Zig these live on a nested `const visitors = struct { ... }`; in Rust they are private
     // associated fns on this impl so they can see the const-generic feature params.
 
-    fn e_new_target(_: &mut Self, _e: &mut Expr, _: ExprIn) {
-    }
+    fn e_new_target(_: &mut Self, _e: &mut Expr, _: ExprIn) {}
 
     fn e_string(_: &mut Self, _e: &mut Expr, _: ExprIn) {
         // If you're using this, you're probably not using 0-prefixed legacy octal notation
@@ -101,7 +100,6 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
             *e = exp;
             return;
         }
-
     }
 
     fn e_spread(p: &mut Self, e: &mut Expr, _: ExprIn) {
@@ -2141,8 +2139,7 @@ impl<'a, const TYPESCRIPT: bool, const SCAN_ONLY: bool> P<'a, TYPESCRIPT, SCAN_O
                 }
                 if p.options.features.react_fast_refresh {
                     p.handle_react_refresh_hook_call(&mut *e_, original_name);
-                } else if
-                'check_for_usestate: {
+                } else if 'check_for_usestate: {
                     if matches!(e_.target.data, Data::EImportIdentifier(..)) {
                         break 'check_for_usestate true;
                     }

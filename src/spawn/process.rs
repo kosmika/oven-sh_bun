@@ -304,11 +304,7 @@ impl Process {
                     if err_.get_errno() == bun_sys::E::ESRCH {
                         break 'brk Status::from(
                             pid,
-                            &posix_spawn::wait4(
-                                pid,
-                                0,
-                                Some(&mut rusage_result),
-                            ),
+                            &posix_spawn::wait4(pid, 0, Some(&mut rusage_result)),
                         );
                     }
                     break 'brk Some(Status::Err(err_));
@@ -695,8 +691,7 @@ impl Status {
 
                 if libc::WIFSIGNALED(status) {
                     signal = Some(libc::WTERMSIG(status) as u8);
-                }
-                else if libc::WIFSTOPPED(status) {
+                } else if libc::WIFSTOPPED(status) {
                     signal = Some(libc::WSTOPSIG(status) as u8);
                 }
             }

@@ -1,11 +1,11 @@
 use bun_alloc::AllocError;
+#[cfg(windows)]
+use bun_paths::path_options::AssumeOk as _;
+use bun_paths::{AbsPath, OSPathChar, OSPathSlice, Path};
 #[cfg(not(windows))]
 use bun_sys::FdDirExt;
 use bun_sys::walker_skippable::Walker;
 use bun_sys::{self as sys, EntryKind, Fd, FdExt};
-#[cfg(windows)]
-use bun_paths::path_options::AssumeOk as _;
-use bun_paths::{AbsPath, OSPathChar, OSPathSlice, Path};
 
 type OsAbsPath = AbsPath<OSPathChar, { bun_paths::path_options::PathSeparators::AUTO }>;
 type OsPath = Path<

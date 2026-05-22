@@ -141,8 +141,7 @@ impl OutdatedCommand {
                 }
                 Global::crash();
             }
-            LoadResult::Ok(_) => {
-            }
+            LoadResult::Ok(_) => {}
         }
 
         if Output::enable_ansi_colors_stdout() {

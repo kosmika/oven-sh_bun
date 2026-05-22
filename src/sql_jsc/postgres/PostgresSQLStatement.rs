@@ -167,7 +167,6 @@ impl Drop for PostgresSQLStatement {
         bun_core::scoped_log!(Postgres, "PostgresSQLStatement deinit");
 
         debug_assert_eq!(self.ref_count.get(), 0, "ref_count.assertNoRefs()");
-
     }
 }
 

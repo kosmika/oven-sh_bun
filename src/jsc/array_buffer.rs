@@ -814,7 +814,6 @@ impl TypedArrayType {
             TypedArrayType::TypeDataView => C::kJSTypedArrayTypeNone,
         }
     }
-
 }
 
 // ──────────────────────────────────────────────────────────────────────────

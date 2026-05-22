@@ -2266,9 +2266,7 @@ fn transpile_source_code_inner(
                         FetchFlags::PrintSourceAndClone => {
                             bun_core::String::clone_utf8(&source.contents)
                         }
-                        FetchFlags::PrintSource => {
-                            bun_core::String::clone_utf8(&source.contents)
-                        }
+                        FetchFlags::PrintSource => bun_core::String::clone_utf8(&source.contents),
                         FetchFlags::Transpile => unreachable!(),
                     };
                     return Ok(OwnedResolvedSource::from(ResolvedSource {

@@ -908,7 +908,6 @@ impl<C: SourceContext> NewSource<C> {
     pub fn memory_cost(&self) -> usize {
         self.context.memory_cost_fn() + core::mem::size_of::<Self>()
     }
-
 }
 
 impl<C: SourceContext> NewSource<C> {

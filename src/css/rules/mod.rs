@@ -503,16 +503,14 @@ impl<R> CssRuleList<R> {
                         // TODO(port): MozDocumentRule minify — Zig fallthrough.
                     }
                     CssRule::Style(_sty) => {
-                        {
-                            minify_style_arm(
-                                rule,
-                                &mut rules,
-                                &mut style_rules,
-                                context,
-                                parent_is_unused,
-                            )?;
-                            break 'arm;
-                        }
+                        minify_style_arm(
+                            rule,
+                            &mut rules,
+                            &mut style_rules,
+                            context,
+                            parent_is_unused,
+                        )?;
+                        break 'arm;
                     }
                     CssRule::CounterStyle(_) => { /* TODO(port): Zig fallthrough */ }
                     CssRule::Scope(_) => { /* TODO(port): Zig fallthrough */ }

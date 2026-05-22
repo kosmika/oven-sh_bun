@@ -180,7 +180,6 @@ impl StoreStr {
     pub fn as_raw(self) -> *const [u8] {
         core::ptr::slice_from_raw_parts(self.ptr.as_ptr(), self.len)
     }
-
 }
 
 impl Default for StoreStr {

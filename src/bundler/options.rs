@@ -155,8 +155,7 @@ pub fn init_external_modules(
                 result.node_modules.insert(pattern).expect("unreachable");
             }
         }
-        Target::Bun => {
-        }
+        Target::Bun => {}
         _ => {}
     }
 
@@ -1854,8 +1853,7 @@ impl<'a> BundleOptions<'a> {
 }
 
 impl Drop for BundleOptions<'_> {
-    fn drop(&mut self) {
-    }
+    fn drop(&mut self) {}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

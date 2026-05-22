@@ -86,20 +86,20 @@ pub mod fs;
 // fs.watch() / fs.watchFile() backends — declared here so `fs::watch` /
 // `fs::watch_file` can reach the real `Arguments` / `FSWatcher` /
 // `StatWatcher` types instead of opaque local stand-ins.
-#[path = "node/path_watcher.rs"]
-pub mod path_watcher;
-#[cfg(windows)]
-#[path = "node/win_watcher.rs"]
-pub mod win_watcher;
 #[path = "node/node_fs_binding.rs"]
 pub mod node_fs_binding;
 #[path = "node/node_fs_stat_watcher.rs"]
 pub mod node_fs_stat_watcher;
 #[path = "node/node_fs_watcher.rs"]
 pub mod node_fs_watcher;
+#[path = "node/path_watcher.rs"]
+pub mod path_watcher;
 #[cfg(windows)]
 #[path = "node/uv_signal_handle_windows.rs"]
 pub mod uv_signal_handle_windows;
+#[cfg(windows)]
+#[path = "node/win_watcher.rs"]
+pub mod win_watcher;
 
 // Type defs + non-JSC FFI bodies are live; every `#[bun_jsc::host_fn]` /
 // `#[bun_jsc::JsClass]` item is wrapped in ` mod _impl` inside

@@ -1,14 +1,14 @@
 use bun_collections::VecExt;
 use core::cmp::Ordering;
 
+use crate::bun_json::{E, Expr, ExprData};
 use bun_alloc::AllocError;
+use bun_ast::{Log, Source};
 use bun_collections::ArrayHashMap;
 use bun_collections::array_hash_map::ArrayHashAdapter;
 use bun_install::dependency::DependencyExt as _;
 use bun_install::lockfile::{Buffers, StringBuilder};
 use bun_install::{Dependency, Lockfile, PackageManager};
-use crate::bun_json::{E, Expr, ExprData};
-use bun_ast::{Log, Source};
 use bun_semver::String;
 use bun_semver::string::{ArrayHashContext, Buf as StringBuf, Builder as StringBuilderNs};
 

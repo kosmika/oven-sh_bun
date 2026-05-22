@@ -394,9 +394,7 @@ mod draft {
                         line_offset,
                     )?
                     .into_key();
-                let is_array: bool = {
-                    key_raw.len() > 2 && bun_core::ends_with(key_raw, b"[]")
-                };
+                let is_array: bool = { key_raw.len() > 2 && bun_core::ends_with(key_raw, b"[]") };
 
                 let key = if is_array && bun_core::ends_with(key_raw, b"[]") {
                     &key_raw[..key_raw.len() - 2]

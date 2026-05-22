@@ -96,7 +96,6 @@ impl<T, C> New<T, C> {
             next: bun_threading::Link::new(),
         }
     }
-
 }
 
 // ported from: src/event_loop/AnyTaskWithExtraContext.zig

@@ -28,9 +28,9 @@ pub mod options {
     pub(crate) use bun_ast::Loader;
     // TODO(port): bun_options_types::{ServerComponents, OutputFormat,
     // AllowUnresolved, Format, Framework} — missing from lower-tier surface.
-    pub use bun_options_types::bundle_enums::ModuleType;
     pub(crate) use crate::parser::Runtime::ServerComponentsMode as ServerComponents;
     pub use JSX::Runtime as JSXRuntime;
+    pub use bun_options_types::bundle_enums::ModuleType;
     pub use bun_options_types::jsx as JSX;
     #[derive(Clone, Copy, Default, PartialEq, Eq)]
     #[allow(non_camel_case_types)]
@@ -1617,8 +1617,7 @@ impl<'a> ParseStatementOptions<'a> {
 pub mod prefill {
     use super::*;
 
-    pub mod hot_module_reloading {
-    }
+    pub mod hot_module_reloading {}
 
     pub mod string_literal {
         pub(crate) const CHILDREN: [u8; 8] = *b"children";

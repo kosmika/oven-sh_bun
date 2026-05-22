@@ -442,7 +442,6 @@ pub struct ComptimeClap<Id> {
     pub pos: Box<[&'static [u8]]>,
     pub passthrough_positionals: Box<[&'static [u8]]>,
     // `mem.Allocator param` field deleted — global mimalloc (see PORTING.md §Allocators).
-
     table: &'static ConvertedTable,
     _id: PhantomData<Id>,
 }

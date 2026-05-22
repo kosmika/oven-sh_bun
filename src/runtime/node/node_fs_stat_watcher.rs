@@ -953,15 +953,12 @@ impl StatWatcher {
                 .ctx
                 .as_mut()
                 .rare_data()
-                .add_stat_watcher_for_isolation(
-                    this_ptr.cast::<c_void>(),
-                    |p| {
-                        ParentRef::from(
-                            NonNull::new(p.cast::<StatWatcher>()).expect("isolation close cb"),
-                        )
-                        .close()
-                    },
-                );
+                .add_stat_watcher_for_isolation(this_ptr.cast::<c_void>(), |p| {
+                    ParentRef::from(
+                        NonNull::new(p.cast::<StatWatcher>()).expect("isolation close cb"),
+                    )
+                    .close()
+                });
         }
         // SAFETY: `this_ptr` was just leaked from `Box`; live with refcount 1.
         InitialStatTask::create_and_schedule(this_ptr);

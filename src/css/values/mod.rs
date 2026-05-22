@@ -17,17 +17,17 @@ pub mod time;
 // The `protocol` submodule below supplies the numeric protocol traits
 // (`Zero`/`MulF32`/`TryAdd`/`Parse`) used by `Calc<V>` / `DimensionPercentage<D>`.
 pub mod color;
+#[path = "color_generated.rs"]
+pub mod color_generated;
 pub mod easing;
 pub mod gradient;
+pub mod ident;
 pub mod image;
 pub mod length;
 pub mod position;
 pub mod rect;
 pub mod size;
 pub mod syntax;
-#[path = "color_generated.rs"]
-pub mod color_generated;
-pub mod ident;
 pub mod url;
 
 /// Numeric protocol traits referenced by `DimensionPercentage<D>` and the

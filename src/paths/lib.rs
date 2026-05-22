@@ -20,15 +20,15 @@ pub mod w_path_buffer_pool {
 
 pub mod string_paths;
 pub mod strings {
-    pub use super::string_paths::*;
-    pub use bun_core::strings::*;
     pub use super::string_paths as paths;
     pub use super::string_paths::from_w_path as from_wpath;
     pub use super::string_paths::to_w_path_normalized as to_wpath_normalized;
+    pub use super::string_paths::*;
     pub use super::string_paths::{
         basename, is_windows_absolute_path_missing_drive_letter, remove_leading_dot_slash,
         starts_with_windows_drive_letter_t, without_trailing_slash,
     };
+    pub use bun_core::strings::*;
 }
 
 // std.fs.path equivalents (PORTING.md §Crate map: never std::path).
@@ -263,6 +263,7 @@ pub mod component_iterator;
 pub use component_iterator::{
     Component, ComponentIterator, MakePathStep, PathFormat, component_iterator, make_path_with,
 };
+pub use path_buffer_pool::os_path_buffer_pool;
 pub use resolve_path::{
     dangerously_convert_path_to_posix_in_place, dangerously_convert_path_to_windows_in_place,
     dirname_w, is_drive_letter, is_drive_letter_t, is_sep_any, is_sep_any_t, is_sep_native,
@@ -271,7 +272,6 @@ pub use resolve_path::{
     relative_to_common_path_buf, slashes_to_posix_in_place, slashes_to_windows_in_place,
     windows_volume_name_len,
 };
-pub use path_buffer_pool::os_path_buffer_pool;
 #[path = "Path.rs"]
 pub mod path;
 pub use path::{

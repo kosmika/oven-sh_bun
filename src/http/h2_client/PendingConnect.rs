@@ -55,7 +55,6 @@ impl PendingConnect {
             .position(|p| core::ptr::eq(&raw const **p, this))
             .map(|i| list.swap_remove(i))
     }
-
 }
 
 // ported from: src/http/h2_client/PendingConnect.zig

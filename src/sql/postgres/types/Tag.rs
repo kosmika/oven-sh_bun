@@ -287,7 +287,6 @@ impl Tag {
 
     // Zig: pub const toJSTypedArrayType / toJS / fromJS = @import("../../../sql_jsc/...").*;
     // Deleted per PORTING.md — these become extension-trait methods in `bun_sql_jsc`.
-
 }
 
 pub trait WireByteSwap: Copy {

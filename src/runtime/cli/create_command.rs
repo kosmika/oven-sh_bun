@@ -819,7 +819,6 @@ impl CreateCommand {
                         {
                             has_dependencies = true;
                             dev_dependencies = Some(q.expr);
-
                         }
                     }
                 }
@@ -846,7 +845,6 @@ impl CreateCommand {
                         {
                             has_dependencies = true;
                             dependencies = Some(q.expr);
-
                         }
                     }
                 }

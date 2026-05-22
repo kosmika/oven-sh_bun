@@ -4,11 +4,11 @@ use core::fmt;
 use std::io::Write as _;
 
 use bun_alloc::AllocError;
+use bun_ast::Index;
 use bun_ast::{ImportKind, ImportRecord};
 use bun_ast::{Ref, Stmt};
 use bun_collections::{ArrayHashMap, AutoBitSet, VecExt};
 use bun_core::{FeatureFlags, Output};
-use bun_ast::Index;
 use bun_core::{immutable as strings, string_joiner::StringJoiner};
 use bun_sourcemap as source_map;
 

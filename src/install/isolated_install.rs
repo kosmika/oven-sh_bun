@@ -2054,12 +2054,23 @@ pub(crate) fn install_isolated_packages(
                         || 'needs_install: {
                             let mut store_path: AbsPath = AbsPath::init_top_level_dir();
                             if uses_global_store {
-                                installer.append_global_store_entry_path(&mut store_path, entry_id, installer::Which::Final);
-                                break 'needs_install !sys::directory_exists_at(Fd::cwd(), store_path.slice_z())
-                                    .ok()
-                                    .unwrap_or(false);
+                                installer.append_global_store_entry_path(
+                                    &mut store_path,
+                                    entry_id,
+                                    installer::Which::Final,
+                                );
+                                break 'needs_install !sys::directory_exists_at(
+                                    Fd::cwd(),
+                                    store_path.slice_z(),
+                                )
+                                .ok()
+                                .unwrap_or(false);
                             }
-                            installer.append_real_store_path(&mut store_path, entry_id, installer::Which::Final);
+                            installer.append_real_store_path(
+                                &mut store_path,
+                                entry_id,
+                                installer::Which::Final,
+                            );
                             // PORT NOTE: reshaped for borrowck — Zig `save()` returns a
                             // `ResetScope` holding `*Path`; capture the length instead so
                             // `store_path` stays unborrowed.
@@ -2077,7 +2088,10 @@ pub(crate) fn install_isolated_packages(
                                 installer::PatchInfo::Remove(_) => unreachable!(),
                                 installer::PatchInfo::Patch(patch) => {
                                     let mut hash_buf: install::BuntagHashBuf = Default::default();
-                                    let hash = install::buntaghashbuf_make(&mut hash_buf, patch.contents_hash);
+                                    let hash = install::buntaghashbuf_make(
+                                        &mut hash_buf,
+                                        patch.contents_hash,
+                                    );
                                     store_path.set_length(scope_for_patch_tag_path);
                                     store_path.append(&*hash).assume_ok();
                                     !sys::exists_z(store_path.slice_z())

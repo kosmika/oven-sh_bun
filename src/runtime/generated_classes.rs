@@ -27,7 +27,7 @@
     clippy::unused_unit
 )]
 
-use crate::webcore::body::BodyMixin;
 use crate::webcore::blob::BlobExt;
+use crate::webcore::body::BodyMixin;
 
 include!(concat!(env!("BUN_CODEGEN_DIR"), "/generated_classes.rs"));
