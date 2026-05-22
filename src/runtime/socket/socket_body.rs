@@ -836,6 +836,7 @@ impl<const SSL: bool> NewSocket<SSL> {
             || errno == sys::SystemErrno::ENOTSOCK as c_int
             || errno == sys::SystemErrno::EACCES as c_int
             || errno == sys::SystemErrno::EINVAL as c_int
+            || errno == sys::SystemErrno::ECONNRESET as c_int
         {
             errno
         } else {
@@ -849,6 +850,8 @@ impl<const SSL: bool> NewSocket<SSL> {
             BunString::static_("EACCES")
         } else if errno == sys::SystemErrno::EINVAL as c_int {
             BunString::static_("EINVAL")
+        } else if errno == sys::SystemErrno::ECONNRESET as c_int {
+            BunString::static_("ECONNRESET")
         } else {
             BunString::static_("ECONNREFUSED")
         };
