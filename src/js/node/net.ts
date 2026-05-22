@@ -2618,7 +2618,7 @@ Server.prototype[kRealListen] = function (
       tls,
       // Accepted sockets are always half-open natively; the stream layer
       // implements allowHalfOpen=false (see kConnect / onSocketEnd).
-          allowHalfOpen: true,
+      allowHalfOpen: true,
       reusePort: reusePort || this[bunSocketServerOptions]?.reusePort || false,
       ipv6Only: ipv6Only || this[bunSocketServerOptions]?.ipv6Only || false,
       exclusive: exclusive || this[bunSocketServerOptions]?.exclusive || false,

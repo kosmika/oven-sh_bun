@@ -1323,7 +1323,8 @@ function setDefaultCACertificates(certs: ReadonlyArray<CACertInput>): void {
     // An element may be a concatenated PEM bundle; Node adds every certificate
     // it contains, so split on certificate boundaries before parsing (a single
     // X509Certificate parse only consumes the first block).
-    const text = typeof cert === "string" ? cert : Buffer.from(cert.buffer, cert.byteOffset, cert.byteLength).toString("latin1");
+    const text =
+      typeof cert === "string" ? cert : Buffer.from(cert.buffer, cert.byteOffset, cert.byteLength).toString("latin1");
     const blocks = text.includes("-----BEGIN")
       ? text.split(/(?=-----BEGIN [A-Z0-9 ]*CERTIFICATE-----)/).filter(block => block.trim())
       : [cert];
