@@ -29,6 +29,7 @@
 
 #include "BunClientData.h"
 #include "EventNames.h"
+#include "JSMessagePort.h"
 #include "MessageEvent.h"
 #include "MessagePortPipe.h"
 #include "MessageWithMessagePorts.h"
@@ -64,6 +65,16 @@ MessagePort::~MessagePort()
 
 ExceptionOr<void> MessagePort::postMessage(JSC::JSGlobalObject& state, JSC::JSValue messageValue, StructuredSerializeOptions&& options)
 {
+    // Reject an already-detached MessagePort in the transfer list before
+    // serialization, so a bad port aborts the post before any ArrayBuffer in
+    // the same transfer list is detached (transfer is atomic), matching Node.
+    for (auto& transferable : options.transfer) {
+        if (auto* jsPort = dynamicDowncast<JSMessagePort>(transferable.get())) {
+            if (jsPort->wrapped().isDetached())
+                return Exception { DataCloneError, "MessagePort in transfer list is already detached"_s };
+        }
+    }
+
     Vector<RefPtr<MessagePort>> ports;
     auto messageData = SerializedScriptValue::create(state, messageValue, WTF::move(options.transfer), ports, SerializationForStorage::No, SerializationContext::WorkerPostMessage);
     if (messageData.hasException())
