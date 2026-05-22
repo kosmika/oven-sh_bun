@@ -14,7 +14,7 @@ import { describe, expect, it } from "bun:test";
 import { bunEnv, bunExe } from "harness";
 import * as zlib from "node:zlib";
 
-describe.each([
+describe.concurrent.each([
   ["Inflate", "deflateSync", "createInflate"],
   ["BrotliDecompress", "brotliCompressSync", "createBrotliDecompress"],
   ["ZstdDecompress", "zstdCompressSync", "createZstdDecompress"],
