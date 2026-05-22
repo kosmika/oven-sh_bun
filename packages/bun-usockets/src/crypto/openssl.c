@@ -674,6 +674,7 @@ SSL_CTX *us_ssl_ctx_build_raw(struct us_bun_socket_context_options_t options,
    * NewSessionTicket arrives, and BoringSSL only exposes it here. NO_INTERNAL
    * keeps BoringSSL from also caching it. */
   SSL_CTX_set_session_cache_mode(ssl_context, SSL_SESS_CACHE_CLIENT |
+                                                  SSL_SESS_CACHE_SERVER |
                                                   SSL_SESS_CACHE_NO_INTERNAL |
                                                   SSL_SESS_CACHE_NO_AUTO_CLEAR);
   SSL_CTX_sess_set_new_cb(ssl_context, us_ssl_new_session_cb);
