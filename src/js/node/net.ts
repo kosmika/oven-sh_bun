@@ -1338,8 +1338,12 @@ Socket.prototype.pause = function pause() {
 Socket.prototype[Symbol.for("::bunUpgradeServerTLS::")] = function (connection, tls) {
   const socket = connection._handle;
   if (!socket) {
-    this._handle = null;
-    throw new Error("Invalid socket");
+    // An unconnected net.Socket or a generic Duplex has no native handle to
+    // adopt; keep the wrapped stream as the handle placeholder like the
+    // client-side wrap does instead of throwing from the constructor.
+    this._handle = connection;
+    this._handle._parentWrap = this;
+    return;
   }
   this[kupgraded] = connection;
   // Bytes that already arrived before the wrap (e.g. the ClientHello) were

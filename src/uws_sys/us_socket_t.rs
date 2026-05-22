@@ -485,11 +485,6 @@ mod c {
             ext_size: i32,
         ) -> *mut us_socket_t;
         /// ssl_ctx is required (the whole point); sni may be null.
-        pub fn us_socket_tls_feed(
-            s: *mut us_socket_t,
-            data: *const c_char,
-            length: i32,
-        ) -> *mut us_socket_t;
         pub fn us_socket_adopt_tls(
             s: *mut us_socket_t,
             group: *mut SocketGroup,
@@ -499,6 +494,12 @@ mod c {
             is_client: i32,
             old_ext_size: i32,
             ext_size: i32,
+        ) -> *mut us_socket_t;
+        /// Feed already-read bytes through the TLS decrypt path.
+        pub fn us_socket_tls_feed(
+            s: *mut us_socket_t,
+            data: *const c_char,
+            length: i32,
         ) -> *mut us_socket_t;
         pub safe fn us_socket_start_tls_handshake(s: &mut us_socket_t);
     }
