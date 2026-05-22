@@ -558,6 +558,15 @@ SSL_CTX *us_ssl_ctx_build_raw(struct us_bun_socket_context_options_t options,
                                       : SSL_VERIFY_PEER,
           us_verify_callback);
     }
+  } else if (options.ca) {
+    /* A present-but-empty CA list (e.g. `tls.setDefaultCACertificates([])` or
+     * `ca: []`) means an empty trust store - every chain fails verification -
+     * not "fall back to the bundled roots" the way an absent option does. */
+    SSL_CTX_set_cert_store(ssl_context, X509_STORE_new());
+    SSL_CTX_set_verify(ssl_context,
+        options.reject_unauthorized ? (SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
+                                    : SSL_VERIFY_PEER,
+        us_verify_callback);
   } else if (options.request_cert) {
     SSL_CTX_set_cert_store(ssl_context, us_get_default_ca_store());
     SSL_CTX_set_verify(ssl_context,
