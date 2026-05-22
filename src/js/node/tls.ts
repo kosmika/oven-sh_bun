@@ -561,6 +561,18 @@ function secureProtocolToVersionRange(secureProtocol) {
 }
 
 function newNativeSecureContext(options) {
+  if (options == null) {
+    // tls.createSecureContext() with no options builds the default context.
+    return NativeSecureContext.intern({});
+  }
+  // ALPN protocols given as an array of strings are converted to the
+  // length-prefixed wire format before crossing into native, the way Node's
+  // convertALPNProtocols normalizes them on the socket options.
+  if (Array.isArray(options.ALPNProtocols)) {
+    const normalized = {};
+    convertALPNProtocols(options.ALPNProtocols, normalized);
+    options = { ...options, ALPNProtocols: normalized.ALPNProtocols };
+  }
   if (options && (!options.key || !options.cert || !options.ca)) {
     options = {
       ...options,
