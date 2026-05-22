@@ -45,6 +45,27 @@ const getDefaultAutoSelectFamily = $zig("node_net_binding.zig", "getDefaultAutoS
 const setDefaultAutoSelectFamily = $zig("node_net_binding.zig", "setDefaultAutoSelectFamily");
 const getDefaultAutoSelectFamilyAttemptTimeout = $zig("node_net_binding.zig", "getDefaultAutoSelectFamilyAttemptTimeout"); // prettier-ignore
 const setDefaultAutoSelectFamilyAttemptTimeout = $zig("node_net_binding.zig", "setDefaultAutoSelectFamilyAttemptTimeout"); // prettier-ignore
+
+// Node seeds the family-autoselection defaults from its CLI option store.
+// The equivalent flags reach us through process.execArgv; apply them once at
+// module load so getDefaultAutoSelectFamily*() reflect the command line.
+{
+  const execArgv = process.execArgv;
+  for (let i = 0; i < execArgv.length; i++) {
+    const arg = execArgv[i];
+    if (arg === "--no-network-family-autoselection" || arg === "--no-enable-network-family-autoselection") {
+      setDefaultAutoSelectFamily(false);
+    } else if (arg === "--network-family-autoselection" || arg === "--enable-network-family-autoselection") {
+      setDefaultAutoSelectFamily(true);
+    } else if (arg.startsWith("--network-family-autoselection-attempt-timeout=")) {
+      const value = Number(arg.slice(arg.indexOf("=") + 1));
+      if (Number.isFinite(value)) setDefaultAutoSelectFamilyAttemptTimeout(value);
+    } else if (arg === "--network-family-autoselection-attempt-timeout" && i + 1 < execArgv.length) {
+      const value = Number(execArgv[i + 1]);
+      if (Number.isFinite(value)) setDefaultAutoSelectFamilyAttemptTimeout(value);
+    }
+  }
+}
 const SocketAddress = $zig("node_net_binding.zig", "SocketAddress");
 const BlockList = $zig("node_net_binding.zig", "BlockList");
 const newDetachedSocket = $newZigFunction("node_net_binding.zig", "newDetachedSocket", 1);
