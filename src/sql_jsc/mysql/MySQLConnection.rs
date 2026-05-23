@@ -1432,6 +1432,7 @@ impl MySQLConnection {
                             header.field_count
                         );
                         statement.cached_structure = Default::default();
+                        statement.cached_statement_js.deinit();
                         if !statement.columns.is_empty() {
                             // Clear the slice before the fallible alloc below. If the alloc
                             // fails, MySQLStatement.deinit() would otherwise iterate and free

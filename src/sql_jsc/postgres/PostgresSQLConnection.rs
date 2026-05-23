@@ -2593,6 +2593,7 @@ impl PostgresSQLConnection {
                         if !statement.fields.is_empty() {
                             statement.fields = Vec::new();
                             statement.cached_structure = Default::default();
+                            statement.cached_statement_js.deinit();
                             statement.needs_duplicate_check = true;
                             statement.fields_flags = Default::default();
                         }
@@ -2675,6 +2676,11 @@ impl PostgresSQLConnection {
                     statement.needs_duplicate_check = true;
                     statement.fields_flags = Default::default();
                 }
+                // A new RowDescription always means new result-set metadata, even
+                // when the previous fields were already empty (e.g. the preceding
+                // statement in a simple-mode batch had no RowDescription but still
+                // cached an empty-columns `{ string, columns }` object).
+                statement.cached_statement_js.deinit();
                 statement.fields = description.fields.into_vec();
             }
             MessageType::Authentication => {
