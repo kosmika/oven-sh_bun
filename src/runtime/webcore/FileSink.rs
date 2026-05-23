@@ -447,9 +447,7 @@ impl FileSink {
                 // neutralize every field that would touch them.
                 (*this).pending.with_mut(|p| p.discard());
                 (*this).signal.with_mut(|s| s.clear());
-                (*this)
-                    .auto_flusher
-                    .with_mut(|a| a.registered.set(false));
+                (*this).auto_flusher.with_mut(|a| a.registered.set(false));
                 #[allow(clippy::mem_forget)]
                 {
                     core::mem::forget((*this).js_sink_ref.replace(Default::default()));
