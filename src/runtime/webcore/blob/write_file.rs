@@ -31,16 +31,11 @@ pub enum WriteFileResultType {
 pub type WriteFileOnWriteFileCallback =
     fn(ctx: *mut c_void, count: WriteFileResultType) -> Result<(), JsTerminated>;
 
-/// Caller-supplied teardown for the `ctx` pointer passed alongside
-/// [`WriteFileOnWriteFileCallback`]. Invoked by
-/// [`windows_impl::WriteFileWindows::on_finish`] when the owning worker VM is
-/// shutting down (issue #31224): entering the JS event loop to resolve the
-/// pending promise would drain microtasks against a dying JSC global, so the
-/// ctx must be freed without resolving. Must reclaim the same allocation
-/// `on_complete_callback` would have consumed.
+/// Frees the `ctx` passed alongside `WriteFileOnWriteFileCallback` without
+/// resolving the promise. Called on the worker-shutdown discard path.
 ///
 /// # Safety
-/// Callers must pass a function matching the concrete `ctx` type.
+/// Must match the concrete `ctx` type `on_complete_callback` was paired with.
 pub type WriteFileOnDiscardCallback = unsafe fn(ctx: *mut c_void);
 
 pub type WriteFileTask = bun_jsc::work_task::WorkTask<WriteFile>;
@@ -638,10 +633,6 @@ mod windows_impl {
         pub file_blob: Blob,
         pub bytes_blob: Blob,
         pub on_complete_callback: WriteFileOnWriteFileCallback,
-        /// Paired with `on_complete_callback`: invoked in place of the
-        /// completion on the worker-shutdown discard path (issue #31224) so
-        /// the `on_complete_ctx` allocation is freed without resolving/
-        /// rejecting any JSPromise against a tearing-down global.
         pub on_complete_discard: WriteFileOnDiscardCallback,
         pub on_complete_ctx: *mut c_void,
         pub mkdirp_if_not_exists: bool,
@@ -1111,33 +1102,12 @@ mod windows_impl {
         /// `this` must point to a live `WriteFileWindows` allocated via [`Self::new`].
         /// On return, `*this` has been freed and must not be accessed again.
         pub unsafe fn on_finish(this: *mut Self) -> WriteFileWindowsError {
-            // Issue #31224: the uv_fs_write completion can arrive after the
-            // owning worker VM began shutdown (crash chain on Windows:
-            // `uv__process_pipe_write_req` → `on_write_complete` → `on_finish`
-            // → `run_from_js_thread` → JSPromise resolve → `JSNextTickQueue::drain`
-            // on a tearing-down worker global). Entering the event loop at
-            // this point drains microtasks through a dead JSC context.
-            //
-            // If the VM is shutting down, invoke the caller-provided discard
-            // callback (which must free the `on_complete_ctx` allocation
-            // without resolving any JSPromise — see
-            // `WriteFileOnDiscardCallback` doc), free `*this`, and return.
-            // SAFETY: `this` is live (caller contract); `event_loop` is the
-            // VM-owned `*mut EventLoop` set in `create_with_ctx`. The
-            // `virtual_machine` field is `Option<NonNull<VirtualMachine>>` set
-            // in `VirtualMachine::init`; reading it forms no long-lived borrow.
             let is_shutting_down = unsafe {
                 (*(*this).event_loop)
                     .virtual_machine
                     .is_some_and(|vm| vm.as_ref().is_shutting_down())
             };
             if is_shutting_down {
-                // SAFETY: caller contract — `this` is live. Copy the ctx+
-                // discard fn out, then `deinit` the allocation (consumes
-                // `*this`), then invoke the discard fn (which consumes its
-                // `ctx` per `WriteFileOnDiscardCallback`'s safety contract).
-                // Ordering prevents the discard from racing with Drop glue
-                // that still references `*this`.
                 let (discard, ctx) =
                     unsafe { ((*this).on_complete_discard, (*this).on_complete_ctx) };
                 unsafe { Self::deinit(this) };
@@ -1383,33 +1353,14 @@ impl WriteFilePromise {
         Ok(())
     }
 
-    /// Free the boxed `WriteFilePromise` without resolving or rejecting the
-    /// pending JSPromise. Used by [`windows_impl::WriteFileWindows::on_finish`]
-    /// when the owning worker VM is already shutting down (issue #31224):
-    /// entering the event loop on the tearing-down global to resolve the
-    /// promise would drain microtasks against a dying JSC context and crash
-    /// via `JSNextTickQueue::drain` (observed on Windows when the
-    /// `uv__process_pipe_write_req` completion arrives during
-    /// `Loop::shutdown`'s `uv_run` — after `WebWorker__teardownJSCVM` has
-    /// dropped the JSC `VM`'s last ref on this thread, `~VM` → `~Heap` →
-    /// `~HandleSet` freed the handle blocks).
-    ///
-    /// Reclaims the Box but `mem::forget`s its `JSPromiseStrong`: the slot
-    /// pointer is dangling once the `HandleSet` is gone, so
-    /// `Bun__StrongRef__delete` would be a use-after-free. Leaking the
-    /// slot is bounded — the Rust `VirtualMachine` struct (which owns the
-    /// JSC VM allocation) is itself freed shortly after this call, so no
-    /// long-term leak.
+    /// Frees the boxed handler on the shutdown path. Forgets the
+    /// `JSPromiseStrong` because the JSC `HandleSet` is already gone.
     ///
     /// # Safety
-    /// `handler` must be a Box-allocated `WriteFilePromise` (matching the
-    /// allocation `run` would consume). Consumes the allocation.
+    /// `handler` must be a Box-allocated `WriteFilePromise`. Consumed.
     pub unsafe fn discard(handler: *mut c_void) {
-        // SAFETY: caller contract — boxed `WriteFilePromise`; consumed here.
         unsafe {
             let mut boxed = bun_core::heap::take(handler.cast::<Self>());
-            // Forget the Strong so its Drop does not touch the freed
-            // HandleSet (see fn doc).
             core::mem::forget(core::mem::take(&mut boxed.promise));
             drop(boxed);
         }

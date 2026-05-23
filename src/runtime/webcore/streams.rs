@@ -542,22 +542,9 @@ impl WritablePending {
         }
     }
 
-    /// Drop the pending write's stored future without resolving/rejecting the
-    /// JSPromise or invoking the handler. Used on the worker-shutdown path
-    /// where the owning VM is tearing down: any resolution would drain
-    /// microtasks into a shutting-down global (see `FileSink::run_pending`
-    /// and `bun_runtime::webcore::blob::write_file::windows_impl::WriteFileWindows::on_finish`;
-    /// issue #31224).
-    ///
-    /// Marks the pending `Used` and clears `result`. For the
-    /// `WritableFuture::Promise` variant the extracted future is
-    /// `mem::forget`'d instead of dropped: on Windows worker shutdown the
-    /// JSC `VM` (and its `HandleSet`) may already be freed by the time the
-    /// completion arrives via `Loop::shutdown`'s `uv_run`, so the
-    /// `JSPromiseStrong`'s `Drop` (→ `Bun__StrongRef__delete` →
-    /// `HandleSet::deallocate`) would be a use-after-free. The slot is
-    /// reclaimed wholesale with the VM's heap. `Handler` and `None`
-    /// futures have no JSC state and drop normally.
+    /// Drop the pending future without resolving the promise. Forgets the
+    /// `Promise` variant's `JSPromiseStrong` because the JSC `HandleSet` is
+    /// already freed when this runs on the Windows worker-shutdown path.
     pub fn discard(&mut self) {
         if self.state != PendingState::Pending {
             return;

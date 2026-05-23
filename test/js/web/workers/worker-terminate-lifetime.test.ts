@@ -120,32 +120,9 @@ test(
   timeout,
 );
 
-// Regression: issue #31224. A worker that schedules an async Bun.write to
-// stdout and then `process.exit(0)`s in the same tick queues a write whose
-// completion lands after the worker VM started shutting down. On Windows,
-// the libuv loop pumps pending `uv_fs_write` completions during worker
-// shutdown (`Loop::shutdown` walks handles and runs one `uv_run` to flush
-// close callbacks). Before the fix, `WriteFileWindows::on_finish` entered
-// the tearing-down worker's event loop and resolved `WriteFilePromise` on
-// a dead JSC global, which drained microtasks via `JSNextTickQueue::drain`
-// and segfaulted inside `JSC::Interpreter::executeCallImpl`. The related
-// `FileSink` pipe-writer path (`PipeWriter::onWriteComplete` →
-// `FileSink::onWrite` → `run_pending` → `event_loop.exit` →
-// `drainMicrotasks`) crashed the same way.
-//
-// The fix discards unobservable completions once the worker VM is shutting
-// down: `WriteFileWindows::on_finish` checks `VirtualMachine::is_shutting_down`
-// and calls `WriteFilePromise::discard` + `deinit` without entering the
-// event loop, and `FileSink::run_pending` calls `WritablePending::discard`
-// so the stored `WritableFuture` is dropped without touching JSPromise
-// resolution machinery. The worker must close cleanly (exit 0) and must
-// not print the sentinel error that would indicate the `.then` ran
-// against a shutting-down global.
-//
-// Windows-only: the crash path is `uv_fs_write` on the libuv-backed
-// `WriteFileWindows`. POSIX uses a thread-pool `WorkTask` whose
-// completion drops into the concurrent queue and is not dispatched past
-// worker shutdown, so the hazard is not reachable there.
+// Regression: #31224. Windows worker scheduling Bun.write then exit(0) used
+// to crash in JSNextTickQueue::drain from the uv_fs_write completion firing
+// after the worker's JSC VM was torn down.
 test.skipIf(!isWindows)(
   "worker that schedules Bun.write to stdout then exits does not crash",
   async () => {
@@ -165,7 +142,6 @@ test.skipIf(!isWindows)(
           \`)));
         }
         const codes = await Promise.all(workers.map(w => new Promise(r => {
-          // Workers started with a data: URL fire 'close' with an 'exitCode' field.
           w.addEventListener("close", e => r(e.code ?? e.exitCode ?? 0), { once: true });
         })));
         for (const c of codes) if (c !== 0) { console.error("bad exit", c); process.exit(1); }
