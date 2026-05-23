@@ -80,10 +80,21 @@ impl ColumnFlags {
 
 impl ColumnDefinition41 {
     // TODO(port): narrow error set
+    //
+    /// Returns `true` when any field surfaced in `result.columns` /
+    /// `result.statement` (name, table, type, length, flags) differs from this
+    /// slot's previous contents. Column definitions are re-decoded into the
+    /// same slot on every COM_STMT_EXECUTE / result set, and the connection
+    /// uses this to invalidate the statement's cached `{ string, columns }`
+    /// object only when the definition actually changed (e.g. a CALL returning
+    /// equal-width result sets with different schemas) instead of on every
+    /// execution (test/regression/issue/28632).
     pub fn decode_internal<Context: ReaderContext>(
         &mut self,
         reader: &mut NewReader<Context>,
-    ) -> Result<(), bun_core::Error> {
+    ) -> Result<bool, bun_core::Error> {
+        let mut metadata_changed = false;
+
         // Length encoded strings
         self.catalog = reader.encode_len_string()?;
         bun_core::scoped_log!(
@@ -113,6 +124,7 @@ impl ColumnDefinition41 {
         let table = reader.encode_len_string()?;
         if self.table.slice() != table.slice() {
             self.table = Data::create(table.slice())?;
+            metadata_changed = true;
         }
         bun_core::scoped_log!(
             ColumnDefinition41,
@@ -130,6 +142,7 @@ impl ColumnDefinition41 {
         let name = reader.encode_len_string()?;
         if self.name.slice() != name.slice() {
             self.name = Data::create(name.slice())?;
+            metadata_changed = true;
         }
         bun_core::scoped_log!(ColumnDefinition41, "name: {}", BStr::new(self.name.slice()));
 
@@ -142,7 +155,9 @@ impl ColumnDefinition41 {
 
         self.fixed_length_fields_length = reader.encoded_len_int()?;
         self.character_set = reader.int::<u16>()?;
-        self.column_length = reader.int::<u32>()?;
+        let column_length = reader.int::<u32>()?;
+        metadata_changed |= column_length != self.column_length;
+        self.column_length = column_length;
         // PORT NOTE: Zig FieldType is a NON-exhaustive `enum(u8)` so `@enumFromInt` accepts
         // any byte. Rust `#[repr(u8)] enum` is exhaustive, so unknown bytes go through
         // `from_raw`'s match and error here instead. This diverges from Zig (which keeps
@@ -151,9 +166,13 @@ impl ColumnDefinition41 {
         // `#[repr(transparent)] struct(u8)` newtype to match Zig's non-exhaustive
         // semantics exactly.
         let type_byte = reader.int::<u8>()?;
-        self.column_type = FieldType::from_raw(type_byte)
+        let column_type = FieldType::from_raw(type_byte)
             .ok_or_else(|| bun_core::err!("UnknownMySQLFieldType"))?;
-        self.flags = ColumnFlags::from_int(reader.int::<u16>()?);
+        metadata_changed |= column_type != self.column_type;
+        self.column_type = column_type;
+        let flags = ColumnFlags::from_int(reader.int::<u16>()?);
+        metadata_changed |= flags != self.flags;
+        self.flags = flags;
         self.decimals = reader.int::<u8>()?;
 
         // PORT NOTE: Zig called `name_or_index.deinit()` before reassigning; in Rust the
@@ -181,16 +200,19 @@ impl ColumnDefinition41 {
         // According to mariadb, there seem to be extra 2 bytes at the end that is not being used
         reader.skip(2);
 
-        Ok(())
+        Ok(metadata_changed)
     }
 
     // TODO(refactor): `decoderWrap(ColumnDefinition41, decodeInternal).decode` is a comptime
     // type-generator that produces a `.decode` wrapper. Consider expressing as a trait impl
     // (e.g. `impl Decode for ColumnDefinition41`) or a macro from `new_reader`.
+    //
+    /// See [`Self::decode_internal`] — the returned `bool` reports whether the
+    /// decoded definition differs from the slot's previous contents.
     pub fn decode<Context: ReaderContext>(
         &mut self,
         reader: &mut NewReader<Context>,
-    ) -> Result<(), bun_core::Error> {
+    ) -> Result<bool, bun_core::Error> {
         self.decode_internal(reader)
     }
 }

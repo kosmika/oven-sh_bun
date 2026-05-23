@@ -1169,7 +1169,12 @@ impl MySQLConnection {
                 };
                 statement.params_received += 1;
             } else if (statement.columns_received as usize) < statement.columns.len() {
-                statement.columns[statement.columns_received as usize].decode(&mut reader)?;
+                if statement.columns[statement.columns_received as usize].decode(&mut reader)? {
+                    // The slot's definition changed (e.g. a re-prepare after the
+                    // table was altered) — the cached `{ string, columns }`
+                    // object no longer describes these fields.
+                    statement.cached_statement_js.deinit();
+                }
                 statement.columns_received += 1;
             }
             // In CLIENT_DEPRECATE_EOF mode, there are no trailing EOF packets, so
@@ -1460,7 +1465,15 @@ impl MySQLConnection {
                         .insert(mysql_statement::ExecutionFlags::HEADER_RECEIVED);
                     return Ok(());
                 } else if (statement.columns_received as usize) < statement.columns.len() {
-                    statement.columns[statement.columns_received as usize].decode(&mut reader)?;
+                    if statement.columns[statement.columns_received as usize].decode(&mut reader)? {
+                        // A reused slot decoded a different definition — e.g. the
+                        // next result set of a CALL / multi-statement response has
+                        // the same column count but different columns — so the
+                        // cached `{ string, columns }` object no longer describes
+                        // these fields. Unchanged re-executions keep the cache
+                        // (test/regression/issue/28632).
+                        statement.cached_statement_js.deinit();
+                    }
                     statement.columns_received += 1;
                 } else {
                     // A 0xFE-prefixed packet at this point is either the end-of-result
