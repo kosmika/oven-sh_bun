@@ -442,23 +442,14 @@ impl FileSink {
             (*this).run_pending_later.has.set(false);
 
             if (*this).js_vm().is_some_and(|vm| vm.is_shutting_down()) {
-                // Neutralize every JSC-handle-holding field so `_guard`
-                // dropping → `FileSink::deref` → `deinit` → field Drops
-                // do not call `Bun__StrongRef__delete`. On the Windows
-                // `Loop::shutdown` path the VM's `HandleSet` is already
-                // freed when this fires, so those calls would be UAF.
-                // Leaking the slots is bounded — they are reclaimed
-                // wholesale with the VM heap.
-                //
-                // `signal.clear()` dodges the same class of UAF through
-                // the caller: `on_write` continues past `run_pending` and
-                // may call `signal.close()` (EndOfFile branch) or fall
-                // into `writer.end()` → `on_close` → `signal.close()`,
-                // which dispatches `FileSink__onClose` into the freed VM
-                // via `SinkSignal::close` if `signal.ptr` is still set.
+                // JSC HandleSet and JSGlobalObject are freed by the time
+                // this fires on Windows Loop::shutdown's final uv_run;
+                // neutralize every field that would touch them.
                 (*this).pending.with_mut(|p| p.discard());
                 (*this).signal.with_mut(|s| s.clear());
-                // SAFETY: intentional leak — see comment above.
+                (*this)
+                    .auto_flusher
+                    .with_mut(|a| a.registered.set(false));
                 #[allow(clippy::mem_forget)]
                 {
                     core::mem::forget((*this).js_sink_ref.replace(Default::default()));
@@ -1341,7 +1332,11 @@ impl FileSink {
         self_.magic.set(FILESINK_DEAD);
         // PORT NOTE: pending/readable_stream/js_sink_ref are dropped by Box drop
         // below; explicit `.deinit()` calls from the Zig are subsumed.
-        if let Some(global) = self_.js_global() {
+        // `registered` gate skips `bun_vm()` when the JSC global may be freed
+        // (worker-shutdown discard path, #31224).
+        if self_.auto_flusher.get().registered.get()
+            && let Some(global) = self_.js_global()
+        {
             // SAFETY: `bun_vm()` is non-null when `js_global()` returned Some.
             let vm = global.bun_vm().as_mut();
             AutoFlusher::unregister_deferred_microtask_with_type::<Self>(self_, vm);
