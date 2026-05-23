@@ -2495,12 +2495,6 @@ impl<'i, Enc: Encoding> Parser<'i, Enc> {
         Ok(Document { root, directives })
     }
 
-    /// [149] c-ns-flow-map-json-key-entry — when a JSON-style key (quoted
-    /// scalar, flow sequence, flow mapping) appears in flow context, the scan
-    /// for a following `:` is in `flow-key` (per [150] c-s-implicit-json-key),
-    /// so an adjacent `:` with no separation is recognized. Returns true iff
-    /// FlowKey was pushed; the caller must then `unset_json_key()` once after
-    /// the relevant scan, regardless of its result.
     fn maybe_set_json_key(&mut self, allowed: bool) -> Result<bool, ParseError> {
         if allowed && self.context.get() == Context::FlowIn {
             self.context.set(Context::FlowKey)?;
@@ -2515,10 +2509,6 @@ impl<'i, Enc: Encoding> Parser<'i, Enc> {
         }
     }
 
-    /// [142]/[143] Consume the `?` and parse the flow explicit-entry key.
-    /// Returns e-node `null` when nothing precedes `,` / `}` / `]` / `:`.
-    /// The caller (parse_flow_mapping / parse_flow_sequence) then handles the
-    /// optional `:` and value with its normal entry path.
     fn parse_flow_explicit_key(&mut self) -> Result<Expr, ParseError> {
         debug_assert!(matches!(self.token.data, TokenData::MappingKey));
         let start = self.token.start;
@@ -2578,11 +2568,6 @@ impl<'i, Enc: Encoding> Parser<'i, Enc> {
                         ) {
                             Expr::init(E::Null {}, self.token.start.loc())
                         } else {
-                            // [147] the value is ns-flow-node; threading the
-                            // value's own indent as current_mapping_indent
-                            // makes the Scalar arm's cmi==scalar_indent check
-                            // return the bare scalar instead of consuming a
-                            // trailing `: …` as a nested mapping.
                             self.parse_node(ParseNodeOptions {
                                 current_mapping_indent: Some(self.token.indent),
                                 ..Default::default()
@@ -2985,10 +2970,6 @@ impl<'i, Enc: Encoding> Parser<'i, Enc> {
 
                         match self.token.data {
                             TokenData::SequenceEntry => {
-                                // [185] a compact construct on the explicit-`:`
-                                // line must be at indent >= n+1 via s-indent
-                                // (spaces). A tab separator leaves the token at
-                                // the line's natural indent, which fails this.
                                 if self.token.line == mapping_line
                                     || (self.token.line == mapping_value_line
                                         && self.token.indent.is_less_than_or_equal(mapping_indent))
@@ -3003,11 +2984,6 @@ impl<'i, Enc: Encoding> Parser<'i, Enc> {
                                     ..Default::default()
                                 })?;
                             }
-                            // [149] e-node value in flow (`"a":,` / `"a":]`).
-                            // Gated on flow_pair_allowed so this only fires
-                            // for [139] ns-flow-seq-entry positions, not for
-                            // a flow-map [147] value reaching here via the
-                            // pre-existing implicit-mapping fallthrough.
                             TokenData::CollectEntry | TokenData::SequenceEnd
                                 if flow_pair_allowed
                                     && matches!(
@@ -3795,11 +3771,6 @@ impl<'i, Enc: Encoding> Parser<'i, Enc> {
 
                 TokenData::MappingKey => {
                     if matches!(self.context.get(), Context::FlowIn | Context::FlowKey) {
-                        // Only reachable when a flow `?` appears in a position
-                        // where ns-flow-pair is not allowed (e.g. as a flow-map
-                        // value, or after another `?`). Both parse_flow_mapping
-                        // and parse_flow_sequence intercept `?` themselves for
-                        // the legitimate paths.
                         return Err(Self::unexpected_token());
                     }
 
@@ -3814,10 +3785,6 @@ impl<'i, Enc: Encoding> Parser<'i, Enc> {
                         ..Default::default()
                     })?;
 
-                    // [185] a compact construct on the `?` line must be at
-                    // indent >= n+1 via s-indent (spaces). A tab separator
-                    // leaves the token at the line's natural indent, which
-                    // fails this.
                     if self.token.line == mapping_line
                         && self.token.indent.is_less_than_or_equal(mapping_indent)
                         && matches!(
@@ -3834,12 +3801,6 @@ impl<'i, Enc: Encoding> Parser<'i, Enc> {
                         && !(self.token.indent == mapping_indent
                             && matches!(self.token.data, TokenData::SequenceEntry))
                     {
-                        // [185] e-node — `?` followed by nothing more-indented
-                        // has an empty key; the current token is the explicit
-                        // `:`, the next entry, or the end of the mapping.
-                        // Exception: a zero-indented `- ` at the `?` indent is
-                        // the key (block sequences may sit at their parent's
-                        // indent).
                         Expr::init(E::Null {}, self.token.start.loc())
                     } else {
                         self.parse_node(ParseNodeOptions {
@@ -5583,12 +5544,6 @@ impl<'i, Enc: Encoding> Parser<'i, Enc> {
                 }
                 0x09 /* '\t' */ => {
                     if additional_parent_indent.is_some() {
-                        // The same-line tab after `?`/`:`/`-` is s-separate-in-
-                        // line, not s-indent. [185] compact constructs require
-                        // s-indent (spaces), so the additional-parent-indent
-                        // treatment does not apply — the resulting token gets
-                        // the line's natural indent and the caller's compact-
-                        // indent check catches it.
                         additional_parent_indent = None;
                     } else if count_indentation && self.context.get() == Context::BlockIn {
                         return Err(ParseError::UnexpectedCharacter);
