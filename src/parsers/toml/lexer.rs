@@ -824,10 +824,8 @@ impl<'a> Lexer<'a> {
                     self.parse_numeric_literal_or_dot()?;
                 }
 
-                c if c == '@' as CodePoint
-                    || ('a' as CodePoint..='z' as CodePoint).contains(&c)
+                c if ('a' as CodePoint..='z' as CodePoint).contains(&c)
                     || ('A' as CodePoint..='Z' as CodePoint).contains(&c)
-                    || c == '$' as CodePoint
                     || c == '_' as CodePoint =>
                 {
                     self.step();
@@ -1204,17 +1202,31 @@ impl<'a> Lexer<'a> {
     pub fn unexpected(&mut self) -> Result<(), Error> {
         let found: &[u8] = 'finder: {
             self.start = self.start.min(self.end);
+            let contents = &self.source.contents;
 
-            if self.start == self.source.contents.len() {
+            if self.start == contents.len() {
                 break 'finder b"end of file";
             } else {
-                break 'finder self.raw();
+                // `self.end` still points at the first byte of the current
+                // codepoint (set by `next_codepoint` in the preceding `step()`);
+                // the character itself hasn't been consumed, so advance `end`
+                // past the codepoint so the reported slice includes the
+                // offending character instead of an empty range.
+                let cp_width = strings::wtf8_byte_sequence_length_with_invalid(
+                    contents[self.start],
+                ) as usize;
+                self.end = (self.start + cp_width).min(contents.len());
+                break 'finder &contents[self.start..self.end];
             }
         };
 
         // PORT NOTE: reshaped for borrowck — compute range before borrowing `found` from source.
         let range = self.range();
-        self.add_range_error(range, format_args!("Unexpected {}", bstr::BStr::new(found)))
+        self.add_range_error(range, format_args!("Unexpected {}", bstr::BStr::new(found)))?;
+        // `add_range_error` only logs and returns `Ok(())`; abort the lex so
+        // the top-level parser loop doesn't observe a synthetic `t_end_of_file`
+        // after an invalid character and silently treat the source as empty.
+        Err(Error::SyntaxError)
     }
 
     pub fn expected_string(&mut self, text: &[u8]) -> Result<(), Error> {
@@ -1290,18 +1302,21 @@ impl<'a> Lexer<'a> {
 }
 
 pub(crate) fn is_identifier_part(code_point: CodePoint) -> bool {
+    // TOML 1.0.0 bare keys: [A-Za-z0-9_-]+. Everything else (including `@`,
+    // `$`, `:`) must be a quoted key. `true`/`false` keywords share this
+    // tokenizer but only match on exact spelling, so no other characters
+    // need to be admitted here.
     matches!(code_point as u32 as u8 as char,
         '0'..='9'
         | 'a'..='z'
         | 'A'..='Z'
-        | '$'
         | '_'
         | '-'
-        | ':'
     ) && (0..=127).contains(&code_point)
     // PORT NOTE: Zig matched CodePoint directly against char ranges; Rust requires
     // bounding to ASCII before the byte cast above is sound.
 }
+
 
 #[inline]
 fn float64(num: CodePoint) -> f64 {
