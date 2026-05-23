@@ -1102,15 +1102,21 @@ mod windows_impl {
         /// `this` must point to a live `WriteFileWindows` allocated via [`Self::new`].
         /// On return, `*this` has been freed and must not be accessed again.
         pub unsafe fn on_finish(this: *mut Self) -> WriteFileWindowsError {
+            // SAFETY: caller contract — `this` is live; `event_loop` is the
+            // VM-owned EventLoop with process lifetime.
             let is_shutting_down = unsafe {
                 (*(*this).event_loop)
                     .virtual_machine
                     .is_some_and(|vm| vm.as_ref().is_shutting_down())
             };
             if is_shutting_down {
+                // SAFETY: caller contract — `this` is live.
                 let (discard, ctx) =
                     unsafe { ((*this).on_complete_discard, (*this).on_complete_ctx) };
+                // SAFETY: caller contract — `this` is live; consumed here.
                 unsafe { Self::deinit(this) };
+                // SAFETY: `ctx` is the boxed handler paired with `discard`
+                // at `create_with_ctx`; `discard` consumes it.
                 unsafe { discard(ctx) };
                 return WriteFileWindowsError::WriteFileWindowsDeinitialized;
             }
