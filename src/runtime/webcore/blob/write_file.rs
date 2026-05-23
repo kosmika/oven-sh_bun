@@ -1359,8 +1359,11 @@ impl WriteFilePromise {
     /// # Safety
     /// `handler` must be a Box-allocated `WriteFilePromise`. Consumed.
     pub unsafe fn discard(handler: *mut c_void) {
+        // SAFETY: caller contract — boxed `WriteFilePromise`; consumed here.
         unsafe {
             let mut boxed = bun_core::heap::take(handler.cast::<Self>());
+            // SAFETY: intentional leak — see fn doc.
+            #[allow(clippy::mem_forget)]
             core::mem::forget(core::mem::take(&mut boxed.promise));
             drop(boxed);
         }
