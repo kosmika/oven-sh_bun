@@ -684,7 +684,12 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
     // upgrade also report errors on close, and those must keep ending
     // cleanly.
     if (err && err.code === "ECONNRESET" && !self.destroyed && socket === self._handle) {
-      self.destroy(new ConnResetException("read ECONNRESET"));
+      // Shape it like Node's errnoException(UV_ECONNRESET, 'read'): message,
+      // code, errno and syscall all populated.
+      const er = new ConnResetException("read ECONNRESET") as Error & { errno?: number; syscall?: string };
+      er.errno = err.errno;
+      er.syscall = "read";
+      self.destroy(er);
       return;
     }
     self[kended] = true;
@@ -1158,6 +1163,7 @@ Socket.prototype.connect = function connect(...args) {
               data: { self: this, req: { oncomplete: afterConnect } },
               tls,
               socket: this[khandlers],
+              isServer: false,
             });
             if (result) {
               const [raw, tls] = result;
@@ -1203,6 +1209,7 @@ Socket.prototype.connect = function connect(...args) {
                   data: { self: this, req: { oncomplete: afterConnect } },
                   tls,
                   socket: this[khandlers],
+                  isServer: false,
                 });
                 if (result) {
                   const [raw, tls] = result;
@@ -1428,6 +1435,7 @@ Socket.prototype[Symbol.for("::bunUpgradeServerTLS::")] = function (connection, 
     data: this,
     tls,
     socket: ServerHandlers,
+    isServer: true,
     initialData: pending || undefined,
   });
   if (!result) {
@@ -2975,6 +2983,8 @@ function uvListenErrorDescription(code) {
       return "permission denied";
     case "EADDRNOTAVAIL":
       return "address not available";
+    case "EINVAL":
+      return "invalid argument";
     default:
       return undefined;
   }

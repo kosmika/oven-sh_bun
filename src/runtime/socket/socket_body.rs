@@ -2778,11 +2778,6 @@ impl<const SSL: bool> NewSocket<SSL> {
                 "upgradeTLS requires an established socket"
             )));
         };
-        // Server-side upgrade (`new tls.TLSSocket(acceptedSocket, { isServer: true })`):
-        // adopt the fd into an accept-state SSL so the native read path drives the
-        // handshake — same code path as the client upgrade, only `is_client` flips.
-        let is_server = this.is_server();
-
         let args = callframe.arguments_old::<1>();
         if args.len < 1 {
             return Err(global.throw(format_args!("Expected 1 arguments")));
@@ -2791,6 +2786,17 @@ impl<const SSL: bool> NewSocket<SSL> {
         if opts.is_empty_or_undefined_or_null() || opts.is_boolean() || !opts.is_object() {
             return Err(global.throw(format_args!("Expected options object")));
         }
+
+        // Server-side upgrade (`new tls.TLSSocket(socket, { isServer: true })`):
+        // adopt the fd into an accept-state SSL so the native read path drives the
+        // handshake — same code path as the client upgrade, only `is_client` flips.
+        // An explicit `isServer` option wins over the underlying socket's mode so
+        // an outgoing connection can still be wrapped as the server side, the way
+        // Node honors the option regardless of how the socket was created.
+        let is_server = match opts.get_truthy(global, "isServer")? {
+            Some(value) => value.to_boolean(),
+            None => this.is_server(),
+        };
 
         let socket_obj = opts
             .get(global, "socket")?
