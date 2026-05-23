@@ -154,11 +154,7 @@ test.skipIf(!isWindows)(
 
     // Drain stdout concurrently — the workers write ~`perRound * 512 KiB` to it
     // and the child blocks on pipe backpressure if we never read it.
-    const [_stdout, stderr, exitCode] = await Promise.all([
-      proc.stdout.text(),
-      proc.stderr.text(),
-      proc.exited,
-    ]);
+    const [_stdout, stderr, exitCode] = await Promise.all([proc.stdout.text(), proc.stderr.text(), proc.exited]);
     expect(stderr).not.toContain("stdout write microtask ran after worker shutdown");
     expect(stderr).not.toContain("bad exit");
     expect(exitCode).toBe(0);
