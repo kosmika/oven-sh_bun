@@ -54,6 +54,26 @@ const setDefaultAutoSelectFamily = $zig("node_net_binding.zig", "setDefaultAutoS
 const getDefaultAutoSelectFamilyAttemptTimeout = $zig("node_net_binding.zig", "getDefaultAutoSelectFamilyAttemptTimeout"); // prettier-ignore
 const setDefaultAutoSelectFamilyAttemptTimeout = $zig("node_net_binding.zig", "setDefaultAutoSelectFamilyAttemptTimeout"); // prettier-ignore
 
+/**
+ * `--tls-keylog=<file>`: every TLS socket appends its NSS key-log lines here,
+ * the way Node's CLI option store seeds an implicit 'keylog' listener.
+ */
+let tlsKeylogPath: string | undefined;
+let tlsKeylogWarned = false;
+function appendTlsKeylog(line: Buffer) {
+  if (!tlsKeylogWarned) {
+    tlsKeylogWarned = true;
+    process.emitWarning(
+      "Using --tls-keylog makes TLS connections insecure by writing secret key material to file " + tlsKeylogPath,
+    );
+  }
+  try {
+    require("node:fs").appendFileSync(tlsKeylogPath, line);
+  } catch {
+    // Node ignores keylog write failures.
+  }
+}
+
 // Node seeds the family-autoselection defaults from its CLI option store.
 // The equivalent flags reach us through process.execArgv; apply them once at
 // module load so getDefaultAutoSelectFamily*() reflect the command line.
@@ -73,6 +93,10 @@ const setDefaultAutoSelectFamilyAttemptTimeout = $zig("node_net_binding.zig", "s
     } else if (arg === "--network-family-autoselection-attempt-timeout" && i + 1 < execArgv.length) {
       const value = Number(execArgv[i + 1]);
       if (Number.isFinite(value) && value >= 1) setDefaultAutoSelectFamilyAttemptTimeout(value);
+    } else if (arg.startsWith("--tls-keylog=")) {
+      tlsKeylogPath = arg.slice("--tls-keylog=".length);
+    } else if (arg === "--tls-keylog" && i + 1 < execArgv.length) {
+      tlsKeylogPath = execArgv[i + 1];
     }
   }
 }
@@ -274,6 +298,7 @@ const SocketHandlers: SocketHandler = {
     const self = socket.data;
     if (!self) return;
     self.emit("keylog", line);
+    if (tlsKeylogPath !== undefined) appendTlsKeylog(line);
     self.server?.emit?.("keylog", line, self);
   },
   error(socket, error) {
@@ -437,6 +462,7 @@ const ServerHandlers: SocketHandler<NetSocket> = {
     const { data: self } = socket;
     if (!self) return;
     self.emit("keylog", line);
+    if (tlsKeylogPath !== undefined) appendTlsKeylog(line);
     self.server?.emit?.("keylog", line, self);
   },
   close(socket, err) {
@@ -773,6 +799,7 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
     const { self } = socket.data;
     if (!self) return;
     self.emit("keylog", line);
+    if (tlsKeylogPath !== undefined) appendTlsKeylog(line);
   },
   close(socket, err) {
     $debug("Bun.Socket close");
