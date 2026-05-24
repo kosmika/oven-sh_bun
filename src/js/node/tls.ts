@@ -562,6 +562,7 @@ function secureProtocolToVersionRange(secureProtocol) {
 }
 
 function newNativeSecureContext(options) {
+  maybeWarnAboutExtraCACerts();
   if (options == null) {
     // tls.createSecureContext() with no options builds the default context.
     return NativeSecureContext.intern({});
@@ -1195,6 +1196,7 @@ function Server(options, secureConnectionListener): void {
   };
 
   this.setSecureContext(options);
+  maybeWarnAboutExtraCACerts();
   // Matches Node's tls.Server handshakeTimeout default + validation:
   // https://github.com/nodejs/node/blob/843dc5f0d5ad/lib/internal/tls/wrap.js#L1386
   const handshakeTimeout = (options && options.handshakeTimeout) || 120 * 1000;
@@ -1361,6 +1363,32 @@ let extraCACertificates: string[] | undefined;
 function cacheExtraCACertificates(): string[] {
   extraCACertificates ||= getExtraCACertificates() as string[];
   return extraCACertificates;
+}
+
+let warnedAboutExtraCACerts = false;
+/**
+ * Match Node's crypto_context.cc: a NODE_EXTRA_CA_CERTS file that cannot be
+ * loaded is ignored with a one-time warning on stderr - emitted when the
+ * first secure context is created, not at startup - rather than failing the
+ * process. The reason text mirrors the strerror()-derived string Node prints.
+ */
+function maybeWarnAboutExtraCACerts() {
+  if (warnedAboutExtraCACerts) return;
+  warnedAboutExtraCACerts = true;
+  const extraPath = process.env.NODE_EXTRA_CA_CERTS;
+  if (!extraPath) return;
+  try {
+    require("node:fs").accessSync(extraPath);
+  } catch (err: any) {
+    // Node prints this with a raw fprintf(stderr, ...) from
+    // crypto_context.cc, not through process.emitWarning - no pid prefix and
+    // no colorization.
+    process.stderr.write(
+      `Warning: Ignoring extra certs from \`${extraPath}\`, load failed: ${
+        err?.code === "ENOENT" ? "No such file or directory" : err?.message
+      }\n`,
+    );
+  }
 }
 
 // Runtime override for the "default" CA certificate set, installed by
