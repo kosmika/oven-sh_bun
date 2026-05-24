@@ -15,7 +15,7 @@ use crate::api::bun_x509 as X509;
 // ──────────────────────────────────────────────────────────────────────────
 #[allow(non_camel_case_types, non_upper_case_globals, dead_code)]
 pub mod ffi {
-    use super::boringssl::{SSL, SSL_CTX, X509, struct_stack_st_X509};
+    use super::boringssl::{SSL, SSL_CTX, X509, X509_STORE, X509_STORE_CTX, struct_stack_st_X509};
     use core::ffi::{c_char, c_int, c_long, c_uint, c_void};
 
     // Re-export the one decl whose `*const c_char` NUL-terminated arg keeps a
@@ -208,6 +208,27 @@ pub mod ffi {
             >,
             arg: *mut c_void,
         );
+        // Returns the borrowed cert store of a live `SSL_CTX*`.
+        pub safe fn SSL_CTX_get_cert_store(ctx: &SSL_CTX) -> *mut X509_STORE;
+        // X509_STORE_CTX lifecycle for issuer lookups; `new` allocates,
+        // `init` borrows the store, `free` releases. Used to extend the peer
+        // certificate chain through the local trust store.
+        pub fn X509_STORE_CTX_new() -> *mut X509_STORE_CTX;
+        pub fn X509_STORE_CTX_init(
+            ctx: *mut X509_STORE_CTX,
+            store: *mut X509_STORE,
+            x509: *mut X509,
+            chain: *mut struct_stack_st_X509,
+        ) -> c_int;
+        pub fn X509_STORE_CTX_free(ctx: *mut X509_STORE_CTX);
+        // Writes a +1 X509 reference to `*issuer` on success (> 0).
+        pub fn X509_STORE_CTX_get1_issuer(
+            issuer: *mut *mut X509,
+            ctx: *mut X509_STORE_CTX,
+            x: *mut X509,
+        ) -> c_int;
+        // Returns X509_V_OK (0) when `issuer` could have issued `subject`.
+        pub fn X509_check_issued(issuer: *mut X509, subject: *mut X509) -> c_int;
     }
 }
 use crate::node::StringOrBuffer;
@@ -455,6 +476,7 @@ pub fn get_peer_certificate(
     // peer certificate above is the leaf instead.
     let first_obj = X509::to_js(boringssl::X509::opaque_mut(first_cert), global)?;
     let mut objects: Vec<JSValue> = vec![first_obj];
+    let mut last_cert: *mut boringssl::X509 = first_cert;
     if !cert_chain.is_null() {
         let mut i: usize = if cert.is_null() { 1 } else { 0 };
         loop {
@@ -464,11 +486,74 @@ pub fn get_peer_certificate(
                 break;
             }
             objects.push(X509::to_js(boringssl::X509::opaque_mut(next), global)?);
+            last_cert = next;
             i += 1;
         }
     }
+
+    // Extend the chain through the local trust store until a self-issued
+    // certificate is reached, the way Node's getPeerCertificate(true) walks
+    // X509_STORE_CTX_get1_issuer to surface the root that completed
+    // verification even though the peer never sent it.
+    // SAFETY: the store ctx is created, initialized against the live SSL_CTX's
+    // store, used only within this scope and freed before returning; every
+    // issuer returned by get1_issuer is a +1 reference collected in `extras`
+    // and released after its fields have been copied into JS values and the
+    // terminal self-issued check has run.
+    let mut last_is_self_issued = false;
+    unsafe {
+        let store = ffi::SSL_CTX_get_cert_store(boringssl::SSL_CTX::opaque_ref(
+            ffi::SSL_get_SSL_CTX(boringssl::SSL::opaque_ref(ssl_ptr)),
+        ));
+        let store_ctx = ffi::X509_STORE_CTX_new();
+        if !store_ctx.is_null() {
+            if !store.is_null()
+                && ffi::X509_STORE_CTX_init(
+                    store_ctx,
+                    store,
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
+                ) == 1
+            {
+                let mut extras: Vec<*mut boringssl::X509> = Vec::new();
+                // Cap the walk so a cyclic store cannot loop forever.
+                while extras.len() < 16 && ffi::X509_check_issued(last_cert, last_cert) != 0 {
+                    let mut issuer: *mut boringssl::X509 = core::ptr::null_mut();
+                    if ffi::X509_STORE_CTX_get1_issuer(&raw mut issuer, store_ctx, last_cert) <= 0
+                        || issuer.is_null()
+                    {
+                        break;
+                    }
+                    match X509::to_js(boringssl::X509::opaque_mut(issuer), global) {
+                        Ok(obj) => objects.push(obj),
+                        Err(e) => {
+                            boringssl::X509_free(issuer);
+                            for extra in extras {
+                                boringssl::X509_free(extra);
+                            }
+                            ffi::X509_STORE_CTX_free(store_ctx);
+                            return Err(e);
+                        }
+                    }
+                    extras.push(issuer);
+                    last_cert = issuer;
+                }
+                last_is_self_issued = ffi::X509_check_issued(last_cert, last_cert) == 0;
+                for extra in extras {
+                    boringssl::X509_free(extra);
+                }
+            }
+            ffi::X509_STORE_CTX_free(store_ctx);
+        }
+    }
+
     for i in 0..objects.len().saturating_sub(1) {
         objects[i].put(global, b"issuerCertificate", objects[i + 1]);
+    }
+    // A self-issued terminal certificate references itself, like Node.
+    if !objects.is_empty() && last_is_self_issued {
+        let last = objects[objects.len() - 1];
+        last.put(global, b"issuerCertificate", last);
     }
     Ok(objects[0])
 }
