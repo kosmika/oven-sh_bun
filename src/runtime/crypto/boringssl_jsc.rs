@@ -3,12 +3,12 @@
 use bun_boringssl_sys as boring;
 use bun_jsc::{JSGlobalObject, JSValue};
 
-const PREFIX: &[u8] = b"BoringSSL ";
-
 pub fn err_to_js(global: &JSGlobalObject, err_code: u32) -> JSValue {
-    let mut outbuf = [0u8; 128 + 1 + PREFIX.len()];
-    outbuf[..PREFIX.len()].copy_from_slice(PREFIX);
-    let message_buf = &mut outbuf[PREFIX.len()..];
+    // The message is the raw ERR_error_string output
+    // ("error:0b000074:X.509 certificate routines:OPENSSL_internal:..."),
+    // exactly what Node built against BoringSSL produces - no prefix.
+    let mut outbuf = [0u8; 128 + 1];
+    let message_buf = &mut outbuf[..];
 
     // SAFETY: message_buf is a valid writable buffer of message_buf.len() bytes.
     unsafe {
@@ -20,7 +20,7 @@ pub fn err_to_js(global: &JSGlobalObject, err_code: u32) -> JSValue {
     }
 
     let error_message: &[u8] = bun_core::slice_to_nul(&outbuf[..]);
-    if error_message.len() == PREFIX.len() {
+    if error_message.is_empty() {
         // TODO(port): globalThis.ERR(.BORINGSSL, ...) builder — confirm bun_jsc API shape
         return global
             .err(

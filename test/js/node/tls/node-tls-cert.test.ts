@@ -678,9 +678,7 @@ it("server-side getPeerCertificate() should not leak", async () => {
     // a leak from the quarantine.
     const threshold = 1024 * 1024 * (isDebug ? 20 : isASAN ? 16 : 12);
     if (isDebug && !isASAN && growth > threshold) {
-      console.warn(
-        `getPeerCertificate rss growth ${(growth / 1048576) | 0}MB exceeds ${(threshold / 1048576) | 0}MB - assuming ASAN quarantine retention on a local debug build`,
-      );
+      console.warn(`getPeerCertificate rss growth ${(growth / 1048576) | 0}MB exceeds ${(threshold / 1048576) | 0}MB - assuming ASAN quarantine retention on a local debug build`);
       return;
     }
     expect(growth).toBeLessThan(threshold);

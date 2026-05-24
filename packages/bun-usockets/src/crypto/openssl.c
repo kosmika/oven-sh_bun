@@ -468,13 +468,15 @@ end:
   BIO_free(in);
   if (count == 0) {
     /* The PEM loop terminates with PEM_R_NO_START_LINE once there are no
-     * (more) CERTIFICATE blocks. An entry that contains no certificates at
-     * all - Node's test suite passes a private key here - is ignored the way
-     * Node ignores it rather than failing the whole context. Anything else
-     * (a malformed certificate block) is still an error. */
+     * (more) CERTIFICATE blocks. A PEM document that contains no
+     * certificates at all - Node's test suite passes a private key here - is
+     * ignored the way Node ignores it rather than failing the whole context.
+     * Content that is not PEM at all, or a malformed certificate block, is
+     * still an error. */
     unsigned long pem_err = ERR_peek_last_error();
-    if (pem_err == 0 || (ERR_GET_LIB(pem_err) == ERR_LIB_PEM &&
-                         ERR_GET_REASON(pem_err) == PEM_R_NO_START_LINE)) {
+    if ((pem_err == 0 || (ERR_GET_LIB(pem_err) == ERR_LIB_PEM &&
+                          ERR_GET_REASON(pem_err) == PEM_R_NO_START_LINE)) &&
+        strstr(content, "-----BEGIN ") != NULL) {
       ERR_clear_error();
       return 1;
     }
