@@ -2436,6 +2436,8 @@ JSC_DEFINE_HOST_FUNCTION(Bun::jsFunctionMakeErrorWithCode, (JSC::JSGlobalObject 
         return JSC::JSValue::encode(createError(globalObject, ErrorCode::ERR_SOCKET_CLOSED_BEFORE_CONNECTION, "Socket closed before the connection was established"_s));
     case ErrorCode::ERR_TLS_RENEGOTIATION_DISABLED:
         return JSC::JSValue::encode(createError(globalObject, ErrorCode::ERR_TLS_RENEGOTIATION_DISABLED, "TLS session renegotiation disabled for this socket"_s));
+    case ErrorCode::ERR_TLS_RENEGOTIATION_UNSUPPORTED:
+        return JSC::JSValue::encode(createError(globalObject, ErrorCode::ERR_TLS_RENEGOTIATION_UNSUPPORTED, "TLS session renegotiation is unsupported by this TLS implementation"_s));
     case ErrorCode::ERR_UNAVAILABLE_DURING_EXIT:
         return JSC::JSValue::encode(createError(globalObject, ErrorCode::ERR_UNAVAILABLE_DURING_EXIT, "Cannot call function in process exit handler"_s));
     case ErrorCode::ERR_TLS_CERT_ALTNAME_FORMAT:

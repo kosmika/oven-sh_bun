@@ -835,6 +835,18 @@ TLSSocket.prototype.isSessionReused = function isSessionReused() {
 };
 
 TLSSocket.prototype.renegotiate = function renegotiate(options, callback) {
+  // https://github.com/nodejs/node/blob/v25.2.1/lib/_tls_wrap.js#L878
+  if (options === null || typeof options !== "object") {
+    throw $ERR_INVALID_ARG_TYPE("options", "object", options);
+  }
+  if (callback !== undefined) {
+    validateFunction(callback, "callback");
+  }
+
+  if (this.destroyed) {
+    return;
+  }
+
   if (this[krenegotiationDisabled]) {
     // if renegotiation is disabled should emit error event in nextTick for nodejs compatibility
     const error = $ERR_TLS_RENEGOTIATION_DISABLED();
@@ -846,29 +858,22 @@ TLSSocket.prototype.renegotiate = function renegotiate(options, callback) {
   // if the socket is detached we can't renegotiate, nodejs do a noop too (we should not return false or true here)
   if (!socket) return;
 
-  if (options) {
-    let requestCert = !!this._requestCert;
-    let rejectUnauthorized = !!this._rejectUnauthorized;
-
-    if (options.requestCert !== undefined) requestCert = !!options.requestCert;
-    if (options.rejectUnauthorized !== undefined) rejectUnauthorized = !!options.rejectUnauthorized;
-
-    if (requestCert !== this._requestCert || rejectUnauthorized !== this._rejectUnauthorized) {
-      socket.setVerifyMode?.(requestCert, rejectUnauthorized);
-      this._requestCert = requestCert;
-      this._rejectUnauthorized = rejectUnauthorized;
-    }
+  let requestCert = !!this._requestCert;
+  let rejectUnauthorized = !!this._rejectUnauthorized;
+  if (options.requestCert !== undefined) requestCert = !!options.requestCert;
+  if (options.rejectUnauthorized !== undefined) rejectUnauthorized = !!options.rejectUnauthorized;
+  if (requestCert !== this._requestCert || rejectUnauthorized !== this._rejectUnauthorized) {
+    socket.setVerifyMode?.(requestCert, rejectUnauthorized);
+    this._requestCert = requestCert;
+    this._rejectUnauthorized = rejectUnauthorized;
   }
-  try {
-    socket.renegotiate?.();
-    // if renegotiate is successful should emit secure event when done
-    if (typeof callback === "function") this.once("secure", () => callback(null));
-    return true;
-  } catch (err) {
-    // if renegotiate fails should emit error event in nextTick for nodejs compatibility
-    if (typeof callback === "function") process.nextTick(callback, err);
-    return false;
-  }
+
+  // BoringSSL does not implement TLS renegotiation; Node built against
+  // BoringSSL reports exactly this from renegotiate() regardless of the
+  // protocol version, and so do we.
+  const error = $ERR_TLS_RENEGOTIATION_UNSUPPORTED();
+  if (typeof callback === "function") process.nextTick(callback, error);
+  return false;
 };
 
 TLSSocket.prototype.disableRenegotiation = function disableRenegotiation() {
@@ -1108,7 +1113,11 @@ function Server(options, secureConnectionListener): void {
     throw Error("Not implented in Bun yet");
   };
 
-  Server.prototype.setTicketKeys = function () {
+  Server.prototype.setTicketKeys = function (keys) {
+    validateBuffer(keys, "buffer");
+    if (keys.byteLength !== 48) {
+      throw $ERR_INVALID_ARG_VALUE("buffer", keys, "Session ticket keys must be a 48-byte buffer");
+    }
     throw Error("Not implented in Bun yet");
   };
 

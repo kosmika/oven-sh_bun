@@ -220,3 +220,12 @@ exports.includesCert = function includesCert(certs, cert) {
 };
 
 exports.TestTLSSocket = TestTLSSocket;
+
+// Dumps certs into a file to pass safely into test/fixtures/list-certs.js
+exports.writeCerts = function writeCerts(certs, filename) {
+  const fs = require('fs');
+  for (const cert of certs) {
+    const x509 = new crypto.X509Certificate(cert);
+    fs.appendFileSync(filename, x509.toString());
+  }
+};
