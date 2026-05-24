@@ -104,7 +104,7 @@ mod nt {
         /// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntreadfile
         #[link_name = "NtReadFile"]
         pub(super) fn NtReadFile(
-            FileHandle: HANDLE, // [in]
+            FileHandle: HANDLE,                  // [in]
             Event: HANDLE,                       // [in, optional]
             ApcRoutine: *mut c_void,             // [in, optional]
             ApcContext: PVOID,                   // [in, optional]
@@ -822,8 +822,7 @@ fn launcher<const MODE: LauncherMode, Ctx: BunCtx>(bun_ctx: Ctx) -> LauncherRet 
     };
     let read_len: usize = match read_status {
         NTSTATUS::SUCCESS => io.Information,
-        NTSTATUS::END_OF_FILE =>
-        {
+        NTSTATUS::END_OF_FILE => {
             // STATUS_END_OF_FILE on a fresh sync handle at offset 0 means zero bytes were
             // written into buf1. The Zig source yields `read_max_len` here and lets the
             // (uninitialized) trailing bytes fail `is_valid()`; in Rust, reading those

@@ -396,7 +396,6 @@ pub mod reader {
         let value = unsafe { read_unaligned_at::<u64>(addr) };
         Ok(JSValue::from_uint64_no_truncate(global_object, value))
     }
-
 }
 
 pub(crate) fn ptr(global_this: &JSGlobalObject, _: JSValue, arguments: &[JSValue]) -> JSValue {

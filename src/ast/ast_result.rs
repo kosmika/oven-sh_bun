@@ -172,7 +172,6 @@ impl<'a> Ast<'a> {
             ..Ast::empty_in(arena)
         }
     }
-
 }
 
 pub use crate::g::Class;
