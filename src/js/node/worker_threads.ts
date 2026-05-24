@@ -704,6 +704,10 @@ class Worker extends EventEmitter {
     return stringPromise.then(s => new HeapSnapshotStream(s));
   }
 
+  getHeapStatistics() {
+    return this.#worker.getHeapStatistics();
+  }
+
   #onClose(e) {
     this.#exited = true;
     if (this.#messagingThreadId !== undefined) {

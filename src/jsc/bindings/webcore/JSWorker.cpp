@@ -75,6 +75,7 @@ static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_postMessage);
 static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_unref);
 static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_ref);
 static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_getHeapSnapshot);
+static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_getHeapStatistics);
 
 // Attributes
 
@@ -419,6 +420,7 @@ static const HashTableValue JSWorkerPrototypeTableValues[] = {
     { "threadId"_s, JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontDelete, NoIntrinsic, { HashTableValue::GetterSetterType, jsWorker_threadIdGetter, nullptr } },
     { "unref"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsWorkerPrototypeFunction_unref, 0 } },
     { "getHeapSnapshot"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsWorkerPrototypeFunction_getHeapSnapshot, 0 } },
+    { "getHeapStatistics"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsWorkerPrototypeFunction_getHeapStatistics, 0 } },
 };
 
 const ClassInfo JSWorkerPrototype::s_info = { "Worker"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWorkerPrototype) };
@@ -738,6 +740,63 @@ static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_getHeapSnapshotBody(
                 "Worker instance not running"_s));
     }
     return JSValue::encode(promise);
+}
+
+static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_getHeapStatisticsBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSWorker>::ClassParameter castedThis)
+{
+    auto* globalObject = defaultGlobalObject(lexicalGlobalObject);
+    auto& vm = JSC::getVM(globalObject);
+    auto& worker = castedThis->wrapped();
+
+    auto* promise = JSC::JSPromise::create(vm, globalObject->promiseStructure());
+    if (!worker.isOnline()) {
+        promise->reject(vm, globalObject, Bun::createError(globalObject, Bun::ErrorCode::ERR_WORKER_NOT_RUNNING, "Worker instance not running"_s));
+        return JSValue::encode(promise);
+    }
+
+    // See getHeapSnapshot for the Strong-handle-across-threads rationale.
+    auto* promiseHandle = new Strong<JSPromise>(vm, promise);
+    auto parentId = globalObject->scriptExecutionContext()->identifier();
+    bool accepted = worker.postTaskToWorkerGlobalScope([promiseHandle, parentId](ScriptExecutionContext& workerCtx) {
+        auto& wvm = workerCtx.vm();
+        double heapSize = static_cast<double>(wvm.heap.size());
+        double capacity = static_cast<double>(wvm.heap.capacity());
+        double extra = static_cast<double>(wvm.heap.extraMemorySize());
+        ScriptExecutionContext::postTaskTo(parentId, [promiseHandle, heapSize, capacity, extra](ScriptExecutionContext& parentCtx) {
+            std::unique_ptr<Strong<JSPromise>> handle(promiseHandle);
+            auto& pvm = parentCtx.vm();
+            auto* go = parentCtx.globalObject();
+            JSObject* o = constructEmptyObject(go);
+            auto set = [&](ASCIILiteral k, double v) { o->putDirect(pvm, Identifier::fromString(pvm, k), jsNumber(v)); };
+            double avail = capacity > heapSize ? capacity - heapSize : capacity;
+            set("total_heap_size"_s, heapSize);
+            set("total_heap_size_executable"_s, heapSize / 2.0);
+            set("total_physical_size"_s, capacity);
+            set("total_available_size"_s, avail);
+            set("used_heap_size"_s, heapSize);
+            set("heap_size_limit"_s, capacity * 10.0);
+            set("malloced_memory"_s, heapSize);
+            set("peak_malloced_memory"_s, capacity);
+            o->putDirect(pvm, Identifier::fromString(pvm, "does_zap_garbage"_s), jsBoolean(false));
+            set("number_of_native_contexts"_s, 1);
+            set("number_of_detached_contexts"_s, 0);
+            set("total_global_handles_size"_s, 8192);
+            set("used_global_handles_size"_s, 2208);
+            set("external_memory"_s, extra);
+            set("total_allocated_bytes"_s, heapSize);
+            handle->get()->resolve(go, pvm, o);
+        });
+    });
+    if (!accepted) {
+        delete promiseHandle;
+        promise->reject(vm, globalObject, Bun::createError(globalObject, Bun::ErrorCode::ERR_WORKER_NOT_RUNNING, "Worker instance not running"_s));
+    }
+    return JSValue::encode(promise);
+}
+
+JSC_DEFINE_HOST_FUNCTION(jsWorkerPrototypeFunction_getHeapStatistics, (JSGlobalObject * lexicalGlobalObject, CallFrame* callFrame))
+{
+    return IDLOperation<JSWorker>::call<jsWorkerPrototypeFunction_getHeapStatisticsBody>(*lexicalGlobalObject, *callFrame, "getHeapStatistics");
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsWorkerPrototypeFunction_getHeapSnapshot, (JSGlobalObject * lexicalGlobalObject, CallFrame* callFrame))
