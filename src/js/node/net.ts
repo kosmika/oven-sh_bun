@@ -189,10 +189,26 @@ function onConnectEnd() {
  */
 function tlsHandshakeError(verifyError) {
   if (verifyError && verifyError.code && verifyError.code !== "ECONNRESET") {
-    const err = new Error(verifyError.reason || verifyError.message || "TLS handshake failed") as Error & {
+    const reason = verifyError.reason || verifyError.message || "TLS handshake failed";
+    const err = new Error(reason) as Error & {
       code?: string;
+      library?: string;
+      function?: string;
+      reason?: string;
     };
-    err.code = verifyError.code;
+    // A fatal SSL-library error carries the full OpenSSL error string
+    // ("error:0a00042e:SSL routines:OPENSSL_internal:TLSV1_ALERT_PROTOCOL_VERSION").
+    // Decompose it into Node's library/function/reason properties and the
+    // ERR_SSL_<REASON> code the way ThrowCryptoError does.
+    const match = /^error:[0-9a-f]+:SSL routines:([^:]*):(.+)$/.exec(reason);
+    if (match) {
+      err.library = "SSL routines";
+      err.function = match[1];
+      err.reason = match[2];
+      err.code = `ERR_SSL_${match[2]}`;
+    } else {
+      err.code = verifyError.code;
+    }
     return err;
   }
   return new ConnResetException("socket hang up");
