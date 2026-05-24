@@ -408,21 +408,9 @@ public:
         return out;
     }
 
-    // Returns true exactly once: the first caller "wins" the one-time seeding
-    // and parent-rebuild responsibility.
-    bool markSeededIfFirst()
-    {
-        Locker locker { m_lock };
-        if (m_seeded)
-            return false;
-        m_seeded = true;
-        return true;
-    }
-
 private:
     Lock m_lock;
     HashMap<String, String> m_map;
-    bool m_seeded { false };
 };
 
 // A `process.env` object whose reads, writes, deletes and enumeration go
@@ -567,9 +555,11 @@ void enableSharedEnvForWorker(Zig::GlobalObject* globalObject)
 
     auto& store = SharedEnvStore::singleton();
 
-    JSObject* envObject = globalObject->m_processEnvObject.isInitialized() ? globalObject->processEnvObject() : nullptr;
+    // Initialize process.env (from the OS environment) if it was never touched,
+    // so the shared store is seeded with the real values instead of an empty map.
+    JSObject* envObject = globalObject->processEnvObject();
     // If this global's process.env is already the shared variant, nothing to do.
-    if (envObject && envObject->inherits<JSSharedEnvMap>())
+    if (envObject->inherits<JSSharedEnvMap>())
         return;
 
     // Merge this global's current process.env into the shared store (the first
@@ -578,7 +568,7 @@ void enableSharedEnvForWorker(Zig::GlobalObject* globalObject)
     // THIS global's process.env to the shared variant. The swap is per-global
     // (a process-wide "seeded" flag must not skip swapping a later global, or
     // its writes would be invisible to the others).
-    if (envObject) {
+    {
         if (!envObject->staticPropertiesReified()) {
             envObject->reifyAllStaticProperties(globalObject);
             RETURN_IF_EXCEPTION(scope, );

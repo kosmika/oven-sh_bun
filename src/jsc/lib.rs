@@ -1263,6 +1263,7 @@ pub mod resolved_source_tag {
         b"@vercel/fetch" => ResolvedSourceTag(648),
         b"ws" => ResolvedSourceTag(649),
         b"bun:internal-for-testing" => ResolvedSourceTag(650),
+        // Native modules come after the JS modules.
         b"bun:test" => ResolvedSourceTag(651),
         b"bun:jsc" => ResolvedSourceTag(652),
         b"bun:app" => ResolvedSourceTag(653),

@@ -1216,10 +1216,11 @@ extern "C" int Bun__handleUncaughtException(JSC::JSGlobalObject* lexicalGlobalOb
     // replaces it with a non-callable value, node cannot dispatch and exits with
     // code 6 (InvalidFatalExceptionMonkeyPatching).
     {
-        auto fatalScope = DECLARE_THROW_SCOPE(vm);
+        auto fatalScope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
         JSValue fatalException = process->get(globalObject, Identifier::fromString(vm, "_fatalException"_s));
-        RETURN_IF_EXCEPTION(fatalScope, false);
-        if (!fatalException.isCallable()) {
+        if (fatalScope.exception()) {
+            (void)fatalScope.tryClearException();
+        } else if (!fatalException.isCallable()) {
             Bun__Process__exit(globalObject, 6);
             return true;
         }

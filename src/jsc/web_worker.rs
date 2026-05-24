@@ -1549,10 +1549,9 @@ fn on_unhandled_rejection(
     // (with code 1; they may change process.exitCode). Run them here, BEFORE
     // arming termination below: arming leaves a pending termination exception
     // that makes dispatchExitInternal skip 'exit' (which is exactly how a parent
-    // terminate() correctly skips them). Clear the just-reported exception first
-    // so the dispatch isn't short-circuited; dispatchExitInternal's static
-    // processIsExiting guard stops shutdown() from running them a second time.
-    let _ = global_object.try_take_exception();
+    // terminate() correctly skips them). The reported exception was already
+    // cleared above, and dispatchExitInternal's static processIsExiting guard
+    // stops shutdown() from running them a second time.
     virtual_machine::ExitHandler::dispatch_on_exit(vm);
     let _ = worker.set_requested_terminate();
     // PORT NOTE: Zig calls `worker.shutdown()` here, which is `noreturn`
