@@ -179,6 +179,9 @@ pub struct NewSocket<const SSL: bool> {
     pub poll_ref: JsCell<KeepAlive>,
     pub ref_pollref_on_connect: Cell<bool>,
     pub connection: JsCell<Option<super::listener::UnixOrHost>>,
+    /// `localAddress`/`localPort` from the connect options: the socket is
+    /// bound to this address before connecting. Always a literal IP.
+    pub local_binding: JsCell<Option<(Box<[u8]>, u16)>>,
     pub protos: JsCell<Option<Box<[u8]>>>,
     pub server_name: JsCell<Option<Box<[u8]>>>,
     pub buffered_data_for_node_net: JsCell<Vec<u8>>,
@@ -403,12 +406,18 @@ impl<const SSL: bool> NewSocket<SSL> {
                 // `ZBox` guarantees a trailing NUL; host bytes contain no interior NUL.
                 let host_c = hostz.as_zstr().as_cstr();
 
+                // Bind to the requested local address before connecting, if any.
+                let local = self.local_binding.get();
+                let local_z = local
+                    .as_ref()
+                    .map(|(h, p)| (bun_core::ZBox::from_bytes(h), *p));
                 self.socket.set(
                     match group.connect(
                         kind,
                         ssl_ctx,
                         host_c,
                         c_int::from(port),
+                        local_z.as_ref().map(|(z, p)| (z.as_zstr().as_cstr(), *p)),
                         flags,
                         core::mem::size_of::<*mut c_void>() as c_int,
                     ) {
@@ -837,6 +846,8 @@ impl<const SSL: bool> NewSocket<SSL> {
             || errno == sys::SystemErrno::EACCES as c_int
             || errno == sys::SystemErrno::EINVAL as c_int
             || errno == sys::SystemErrno::ECONNRESET as c_int
+            || errno == sys::SystemErrno::EADDRINUSE as c_int
+            || errno == sys::SystemErrno::EADDRNOTAVAIL as c_int
         {
             errno
         } else {
@@ -852,6 +863,10 @@ impl<const SSL: bool> NewSocket<SSL> {
             BunString::static_("EINVAL")
         } else if errno == sys::SystemErrno::ECONNRESET as c_int {
             BunString::static_("ECONNRESET")
+        } else if errno == sys::SystemErrno::EADDRINUSE as c_int {
+            BunString::static_("EADDRINUSE")
+        } else if errno == sys::SystemErrno::EADDRNOTAVAIL as c_int {
+            BunString::static_("EADDRNOTAVAIL")
         } else {
             BunString::static_("ECONNREFUSED")
         };
@@ -2965,6 +2980,7 @@ impl<const SSL: bool> NewSocket<SSL> {
             socket: Cell::new(SocketHandler::<true>::DETACHED),
             owned_ssl_ctx: Cell::new(owned_ctx_taken),
             connection: JsCell::new(this.connection.get().clone()),
+            local_binding: JsCell::new(None),
             protos: JsCell::new(cfg.and_then(|c| c.protos_bytes().map(Box::<[u8]>::from))),
             server_name: JsCell::new(
                 cfg.and_then(|c| c.server_name_bytes().map(Box::<[u8]>::from)),
@@ -3099,6 +3115,7 @@ impl<const SSL: bool> NewSocket<SSL> {
             socket: Cell::new(SocketHandler::<true>::from(new_raw.as_ptr())),
             owned_ssl_ctx: Cell::new(None),
             connection: JsCell::new(None),
+            local_binding: JsCell::new(None),
             protos: JsCell::new(None),
             server_name: JsCell::new(None),
             // is_active so the chained `raw.onClose` → `markInactive` path
@@ -3971,6 +3988,7 @@ pub fn js_upgrade_duplex_to_tls(
         socket: Cell::new(SocketHandler::<true>::DETACHED),
         owned_ssl_ctx: Cell::new(None),
         connection: JsCell::new(None),
+        local_binding: JsCell::new(None),
         protos: JsCell::new(
             socket_config.and_then(|cfg| cfg.protos_bytes().map(Box::<[u8]>::from)),
         ),

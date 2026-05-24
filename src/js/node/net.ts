@@ -791,6 +791,8 @@ function kConnectTcp(self, addressType, req, address, port) {
   const promise = doConnect(self._handle, {
     hostname: address,
     port,
+    localAddress: req.localAddress || undefined,
+    localPort: req.localPort || undefined,
     ipv6Only: addressType === 6,
     // The native socket is always half-open: closing it on the peer's FIN
     // would discard whatever is still buffered on the writable side. The
