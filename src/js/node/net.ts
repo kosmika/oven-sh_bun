@@ -180,6 +180,24 @@ function onConnectEnd() {
   }
 }
 
+
+/**
+ * Build the Error for a handshake that failed before completing. A fatal SSL
+ * protocol error (wrong version number, bad record, ...) carries the OpenSSL
+ * error string in `verifyError.reason`; everything else is the peer
+ * disconnecting mid-handshake, which Node reports as ECONNRESET.
+ */
+function tlsHandshakeError(verifyError) {
+  if (verifyError && verifyError.code && verifyError.code !== "ECONNRESET") {
+    const err = new Error(verifyError.reason || verifyError.message || "TLS handshake failed") as Error & {
+      code?: string;
+    };
+    err.code = verifyError.code;
+    return err;
+  }
+  return new ConnResetException("socket hang up");
+}
+
 const SocketHandlers: SocketHandler = {
   close(socket, err) {
     const self = socket.data;
@@ -292,6 +310,13 @@ const SocketHandlers: SocketHandler = {
     if (!self) return;
     if (!success && verifyError?.code === "ECONNRESET") {
       // will be handled in onConnectEnd
+      return;
+    }
+    if (!success && verifyError?.code && verifyError.code !== "ECONNRESET") {
+      // A fatal SSL protocol error (the peer is not speaking TLS): surface
+      // the OpenSSL reason instead of letting the close path report a
+      // generic disconnect.
+      self.destroy(tlsHandshakeError(verifyError));
       return;
     }
 
@@ -426,8 +451,11 @@ const ServerHandlers: SocketHandler<NetSocket> = {
     // `server` is null for a standalone `new tls.TLSSocket(socket, { isServer: true })`
     // (no listening server owns it) — guard every server.emit / server option read.
     const server = self.server;
-    if (!success && verifyError?.code === "ECONNRESET") {
-      const err = new ConnResetException("socket hang up");
+    if (!success) {
+      // The handshake never completed: there is no TLS session, so there is
+      // no secureConnection. Report the failure through tlsClientError the
+      // way Node does and tear the connection down.
+      const err = tlsHandshakeError(verifyError);
       self.emit("_tlsError", err);
       server?.emit("tlsClientError", err, self);
       self._hadError = true;
@@ -714,6 +742,10 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
     const { self } = socket.data;
     if (!success && verifyError?.code === "ECONNRESET") {
       // will be handled in onConnectEnd
+      return;
+    }
+    if (!success && verifyError?.code && verifyError.code !== "ECONNRESET") {
+      self.destroy(tlsHandshakeError(verifyError));
       return;
     }
 

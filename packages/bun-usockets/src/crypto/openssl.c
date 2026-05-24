@@ -68,6 +68,12 @@ struct loop_ssl_data {
   BIO *shared_rbio;
   BIO *shared_wbio;
   BIO_METHOD *shared_biom;
+  /* The OpenSSL error string of the fatal SSL error that is about to close
+   * the current socket (set in the SSL_ERROR_SSL branch immediately before
+   * ssl_close, consumed by the handshake-failure dispatch inside that
+   * ssl_close, cleared after use). Lets 'wrong version number' and friends
+   * reach the JS 'tlsClientError' / client error the way Node reports them. */
+  char ssl_last_fatal_error[256];
 };
 
 enum {
@@ -899,12 +905,43 @@ struct us_bun_verify_error_t us_internal_ssl_verify_error(struct us_socket_t *s)
  * and bail before touching s->ssl again. */
 static void ssl_trigger_handshake(struct us_socket_t *s, int success) {
   s->ssl_handshake_state = HANDSHAKE_COMPLETED;
+  /* A fatal SSL protocol error (wrong version number, bad record, ...) was
+   * recorded just before this failure: report it instead of the X509 verify
+   * result so Node's tlsClientError / client error carries the OpenSSL
+   * reason string. */
+  if (!success) {
+    struct loop_ssl_data *loop_ssl_data =
+        (struct loop_ssl_data *) s->group->loop->data.ssl_data;
+    if (loop_ssl_data && loop_ssl_data->ssl_last_fatal_error[0]) {
+      struct us_bun_verify_error_t verify_error = {
+          .error = -71, .code = "EPROTO", .reason = loop_ssl_data->ssl_last_fatal_error};
+      us_dispatch_handshake(s, 0, verify_error);
+      /* The dispatch copies the string into a JS value synchronously; clear
+       * the scratch so a later unrelated failure on this loop cannot pick up
+       * a stale reason. */
+      loop_ssl_data->ssl_last_fatal_error[0] = 0;
+      return;
+    }
+  }
   struct us_bun_verify_error_t verify_error = us_internal_ssl_verify_error(s);
   us_dispatch_handshake(s, success, verify_error);
 }
 
 static void ssl_trigger_handshake_econnreset(struct us_socket_t *s) {
   s->ssl_handshake_state = HANDSHAKE_COMPLETED;
+  /* A fatal SSL protocol error (wrong version number, bad record, ...) was
+   * recorded just before this close: report it instead of the generic
+   * disconnected-before-established message so Node's tlsClientError /
+   * client error carries the OpenSSL reason. */
+  struct loop_ssl_data *loop_ssl_data =
+      (struct loop_ssl_data *) s->group->loop->data.ssl_data;
+  if (loop_ssl_data && loop_ssl_data->ssl_last_fatal_error[0]) {
+    struct us_bun_verify_error_t verify_error = {
+        .error = -71, .code = "EPROTO", .reason = loop_ssl_data->ssl_last_fatal_error};
+    us_dispatch_handshake(s, 0, verify_error);
+    loop_ssl_data->ssl_last_fatal_error[0] = 0;
+    return;
+  }
   struct us_bun_verify_error_t verify_error = {
       .error = -46, .code = "ECONNRESET",
       .reason = "Client network socket disconnected before secure TLS connection was established"};
@@ -1037,6 +1074,13 @@ static void ssl_update_handshake(struct us_socket_t *s) {
     int err = SSL_get_error(s_ssl(s), result);
     if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) {
       if (err == SSL_ERROR_SSL || err == SSL_ERROR_SYSCALL) {
+        struct loop_ssl_data *loop_ssl_data =
+            (struct loop_ssl_data *) s->group->loop->data.ssl_data;
+        unsigned long ssl_queue_err = ERR_peek_last_error();
+        if (loop_ssl_data && ssl_queue_err != 0 && !loop_ssl_data->ssl_last_fatal_error[0]) {
+          ERR_error_string_n(ssl_queue_err, loop_ssl_data->ssl_last_fatal_error,
+                             sizeof(loop_ssl_data->ssl_last_fatal_error));
+        }
         ERR_clear_error();
         s->ssl_fatal_error = 1;
       }
@@ -1163,10 +1207,16 @@ restart:
         }
 
         if (err == SSL_ERROR_SSL || err == SSL_ERROR_SYSCALL) {
+          unsigned long ssl_queue_err = ERR_peek_last_error();
+          if (ssl_queue_err != 0 && !loop_ssl_data->ssl_last_fatal_error[0]) {
+            ERR_error_string_n(ssl_queue_err, loop_ssl_data->ssl_last_fatal_error,
+                               sizeof(loop_ssl_data->ssl_last_fatal_error));
+          }
           ERR_clear_error();
           s->ssl_fatal_error = 1;
         }
         ssl_close(s, 0, NULL);
+        loop_ssl_data->ssl_last_fatal_error[0] = 0;
         return NULL;
       } else {
         if (err == SSL_ERROR_WANT_WRITE) s->ssl_read_wants_write = 1;
