@@ -111,6 +111,7 @@ const kclosed = Symbol("closed");
 const kended = Symbol("ended");
 const kpendingSession = Symbol("pendingSession");
 const kPerfHooksNetConnectContext = Symbol("kPerfHooksNetConnectContext");
+const khandshakeTimer = Symbol("khandshakeTimer");
 const kUserUnrefed = Symbol("kUserUnrefed");
 const kwriteCallback = Symbol("writeCallback");
 const kSocketClass = Symbol("kSocketClass");
@@ -450,10 +451,20 @@ const ServerHandlers: SocketHandler<NetSocket> = {
     // `server` is null for a standalone `new tls.TLSSocket(socket, { isServer: true })`
     // (no listening server owns it) — guard every server.emit / server option read.
     const server = self.server;
+    if (self[khandshakeTimer]) {
+      clearTimeout(self[khandshakeTimer]);
+      self[khandshakeTimer] = undefined;
+    }
     if (!success) {
       // The handshake never completed: there is no TLS session, so there is
       // no secureConnection. Report the failure through tlsClientError the
-      // way Node does and tear the connection down.
+      // way Node does and tear the connection down. A connection that was
+      // already reported (handshake timeout, explicit destroy) is not
+      // reported a second time when its teardown unwinds the handshake.
+      if (self._hadError || self.destroyed) {
+        if (!self.destroyed) self.destroy();
+        return;
+      }
       const err = tlsHandshakeError(verifyError);
       self.emit("_tlsError", err);
       server?.emit("tlsClientError", err, self);
@@ -630,6 +641,27 @@ function onconnection(err, clientHandle) {
       self.prependOnceListener("connection", connectionListener);
     }
   }
+  // A client that never completes the TLS handshake must not hold the
+  // accepted socket open forever: report it through tlsClientError after
+  // handshakeTimeout the way Node does. The timer is cleared when the
+  // handshake settles (either way) or the socket closes first.
+  if (isTLS && self._handshakeTimeout > 0) {
+    const timer = setTimeout(() => {
+      _socket[khandshakeTimer] = undefined;
+      const err = $ERR_TLS_HANDSHAKE_TIMEOUT();
+      _socket._hadError = true;
+      self.emit("tlsClientError", err, _socket);
+      if (!_socket.destroyed) _socket.destroy();
+    }, self._handshakeTimeout);
+    _socket[khandshakeTimer] = timer;
+    _socket.once("close", () => {
+      if (_socket[khandshakeTimer]) {
+        clearTimeout(_socket[khandshakeTimer]);
+        _socket[khandshakeTimer] = undefined;
+      }
+    });
+  }
+
   self.emit("connection", _socket);
   // the duplex implementation start paused, so we resume when pauseOnConnect is falsy
   if (!pauseOnConnect && !isTLS) {

@@ -1199,6 +1199,7 @@ function Server(options, secureConnectionListener): void {
   // https://github.com/nodejs/node/blob/843dc5f0d5ad/lib/internal/tls/wrap.js#L1386
   const handshakeTimeout = (options && options.handshakeTimeout) || 120 * 1000;
   validateNumber(handshakeTimeout, "options.handshakeTimeout");
+  this._handshakeTimeout = handshakeTimeout;
 }
 $toClass(Server, "Server", NetServer);
 
