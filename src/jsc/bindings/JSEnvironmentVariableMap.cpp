@@ -566,15 +566,19 @@ void enableSharedEnvForWorker(Zig::GlobalObject* globalObject)
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     auto& store = SharedEnvStore::singleton();
-    if (!store.markSeededIfFirst()) {
-        // Already enabled by an earlier SHARE_ENV worker; the parent's
-        // process.env is already the shared write-through variant.
-        return;
-    }
 
-    // Seed the store from the parent's current process.env (own enumerable
-    // string properties), mirroring the env-snapshot path.
-    if (JSObject* envObject = globalObject->processEnvObject()) {
+    JSObject* envObject = globalObject->m_processEnvObject.isInitialized() ? globalObject->processEnvObject() : nullptr;
+    // If this global's process.env is already the shared variant, nothing to do.
+    if (envObject && envObject->inherits<JSSharedEnvMap>())
+        return;
+
+    // Merge this global's current process.env into the shared store (the first
+    // participating global establishes the values; later joiners only add keys
+    // not already present so they don't clobber the shared state), then swap
+    // THIS global's process.env to the shared variant. The swap is per-global
+    // (a process-wide "seeded" flag must not skip swapping a later global, or
+    // its writes would be invisible to the others).
+    if (envObject) {
         if (!envObject->staticPropertiesReified()) {
             envObject->reifyAllStaticProperties(globalObject);
             RETURN_IF_EXCEPTION(scope, );
@@ -585,15 +589,18 @@ void enableSharedEnvForWorker(Zig::GlobalObject* globalObject)
         RETURN_IF_EXCEPTION(scope, );
 
         for (const auto& key : keys) {
+            String keyStr = String(key.impl());
+            if (!store.get(keyStr).isNull())
+                continue;
             JSValue value = envObject->get(globalObject, key);
             RETURN_IF_EXCEPTION(scope, );
             String str = value.toWTFString(globalObject);
             RETURN_IF_EXCEPTION(scope, );
-            store.set(String(key.impl()), str);
+            store.set(keyStr, str);
         }
     }
 
-    // Swap the parent's process.env to the shared, write-through variant.
+    // Swap this global's process.env to the shared, write-through variant.
     auto* shared = JSSharedEnvMap::create(vm, JSSharedEnvMap::createStructure(vm, globalObject, globalObject->objectPrototype()));
     globalObject->m_processEnvObject.set(vm, globalObject, shared);
 

@@ -199,10 +199,12 @@ void MessagePort::peerClosed()
     // side doesn't fire it twice) and release the event-loop ref held by
     // jsRef()/onmessage so the loop can idle. Matches node's MessagePort.
     dispatchCloseEvent();
-    if (m_hasRef) {
-        auto* globalObject = defaultGlobalObject(context->globalObject());
-        jsUnref(globalObject);
-    }
+    // Release any event-loop ref this port holds. jsUnref() internally clears
+    // both the message-listener loop-ref (m_isRefd) and the onmessage/ref()
+    // keepalive (m_hasRef), so a transferred port that only had a 'message'
+    // listener (no .onmessage/.ref()) no longer pins the loop after the peer closes.
+    auto* globalObject = defaultGlobalObject(context->globalObject());
+    jsUnref(globalObject);
 }
 
 TransferredMessagePort MessagePort::disentangle()

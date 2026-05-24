@@ -1594,6 +1594,24 @@ private:
         VM& vm = m_lexicalGlobalObject->vm();
         auto scope = DECLARE_THROW_SCOPE(vm);
 
+        // worker_threads markAsUncloneable: reject a marked object anywhere in the
+        // graph (root, array element, or object property), excluding ArrayBuffers/
+        // views which are serialized natively. Checked here (not just at the root)
+        // because nested terminals are dumped via dumpIfTerminal directly.
+        if (value.isObject()) {
+            JSObject* obj = asObject(value);
+            if (!obj->inherits<JSArrayBuffer>() && !obj->inherits<JSArrayBufferView>()
+                && obj->structure()->hasNonEnumerableProperties()) {
+                auto uncloneableMarker = Identifier::fromUid(vm.symbolRegistry().symbolForKey("nodejs.worker_threads.uncloneable"_s));
+                bool marked = obj->hasOwnProperty(m_lexicalGlobalObject, uncloneableMarker);
+                RETURN_IF_EXCEPTION(scope, false);
+                if (marked) {
+                    code = SerializationReturnCode::DataCloneError;
+                    return true;
+                }
+            }
+        }
+
         if (isArray(value))
             return false;
 
@@ -2624,7 +2642,6 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
     WalkerState state = StateUnknown;
     JSValue inValue = in;
     auto scope = DECLARE_THROW_SCOPE(vm);
-    auto uncloneableMarker = Identifier::fromUid(vm.symbolRegistry().symbolForKey("nodejs.worker_threads.uncloneable"_s));
     while (1) {
         switch (state) {
         arrayStartState:
@@ -2838,16 +2855,6 @@ SerializationReturnCode CloneSerializer::serialize(JSValue in)
 
         stateUnknown:
         case StateUnknown: {
-            if (inValue.isObject()) {
-                JSObject* uncloneableObj = asObject(inValue);
-                if (!uncloneableObj->inherits<JSArrayBuffer>() && !uncloneableObj->inherits<JSArrayBufferView>()
-                    && uncloneableObj->structure()->hasNonEnumerableProperties()) {
-                    bool marked = uncloneableObj->hasOwnProperty(m_lexicalGlobalObject, uncloneableMarker);
-                    RETURN_IF_EXCEPTION(scope, SerializationReturnCode::ExistingExceptionError);
-                    if (marked)
-                        return SerializationReturnCode::DataCloneError;
-                }
-            }
             auto terminalCode = SerializationReturnCode::SuccessfullyCompleted;
             auto dumped = dumpIfTerminal(inValue, terminalCode);
             RETURN_IF_EXCEPTION(scope, SerializationReturnCode::ExistingExceptionError);
