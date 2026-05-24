@@ -2831,6 +2831,7 @@ Server.prototype[kRealListen] = function (
 Server.prototype[EventEmitter.captureRejectionSymbol] = function (err, event, sock) {
   switch (event) {
     case "connection":
+    case "secureConnection":
       sock.destroy(err);
       break;
     default:
