@@ -7,7 +7,7 @@ const EventEmitter = require("node:events");
 const Readable = require("internal/streams/readable");
 const Writable = require("internal/streams/writable");
 const { throwNotImplemented, warnNotImplementedOnce } = require("internal/shared");
-const { validateString } = require("internal/validators");
+const { validateString, validateObject, validateInteger, validateNumber } = require("internal/validators");
 
 // Mirror node's lib/internal/worker.js name handling: default "WorkerThread",
 // validate + trim when a name is provided.
@@ -706,6 +706,19 @@ class Worker extends EventEmitter {
 
   getHeapStatistics() {
     return this.#worker.getHeapStatistics();
+  }
+
+  startCpuProfile(options?: { sampleInterval?: number; maxBufferSize?: number }) {
+    // node validates synchronously before starting; the underlying JSC sampler
+    // ignores these knobs but the range checks must still match.
+    if (options !== undefined && options !== null) {
+      validateObject(options, "options");
+      if (options.maxBufferSize !== undefined) validateInteger(options.maxBufferSize, "options.maxBufferSize", 1);
+      if (options.sampleInterval !== undefined) validateNumber(options.sampleInterval, "options.sampleInterval");
+    }
+    return this.#worker.startCpuProfileInternal().then(() => ({
+      stop: () => this.#worker.stopCpuProfileInternal(),
+    }));
   }
 
   #onClose(e) {

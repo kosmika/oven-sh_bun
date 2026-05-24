@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "JSWorker.h"
+#include "BunCPUProfiler.h"
 
 #include "ActiveDOMObject.h"
 #include "EventNames.h"
@@ -76,6 +77,8 @@ static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_unref);
 static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_ref);
 static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_getHeapSnapshot);
 static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_getHeapStatistics);
+static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_startCpuProfileInternal);
+static JSC_DECLARE_HOST_FUNCTION(jsWorkerPrototypeFunction_stopCpuProfileInternal);
 
 // Attributes
 
@@ -421,6 +424,8 @@ static const HashTableValue JSWorkerPrototypeTableValues[] = {
     { "unref"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsWorkerPrototypeFunction_unref, 0 } },
     { "getHeapSnapshot"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsWorkerPrototypeFunction_getHeapSnapshot, 0 } },
     { "getHeapStatistics"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsWorkerPrototypeFunction_getHeapStatistics, 0 } },
+    { "startCpuProfileInternal"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsWorkerPrototypeFunction_startCpuProfileInternal, 0 } },
+    { "stopCpuProfileInternal"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsWorkerPrototypeFunction_stopCpuProfileInternal, 0 } },
 };
 
 const ClassInfo JSWorkerPrototype::s_info = { "Worker"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWorkerPrototype) };
@@ -792,6 +797,71 @@ static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_getHeapStatisticsBod
         promise->reject(vm, globalObject, Bun::createError(globalObject, Bun::ErrorCode::ERR_WORKER_NOT_RUNNING, "Worker instance not running"_s));
     }
     return JSValue::encode(promise);
+}
+
+static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_startCpuProfileInternalBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSWorker>::ClassParameter castedThis)
+{
+    auto* globalObject = defaultGlobalObject(lexicalGlobalObject);
+    auto& vm = JSC::getVM(globalObject);
+    auto& worker = castedThis->wrapped();
+    auto* promise = JSC::JSPromise::create(vm, globalObject->promiseStructure());
+    if (!worker.isOnline()) {
+        promise->reject(vm, globalObject, Bun::createError(globalObject, Bun::ErrorCode::ERR_WORKER_NOT_RUNNING, "Worker instance not running"_s));
+        return JSValue::encode(promise);
+    }
+    auto* promiseHandle = new Strong<JSPromise>(vm, promise);
+    auto parentId = globalObject->scriptExecutionContext()->identifier();
+    bool accepted = worker.postTaskToWorkerGlobalScope([promiseHandle, parentId](ScriptExecutionContext& workerCtx) {
+        if (!Bun::isCPUProfilerRunning())
+            Bun::startCPUProfiler(workerCtx.vm());
+        ScriptExecutionContext::postTaskTo(parentId, [promiseHandle](ScriptExecutionContext& parentCtx) {
+            std::unique_ptr<Strong<JSPromise>> handle(promiseHandle);
+            handle->get()->resolve(parentCtx.globalObject(), parentCtx.vm(), jsUndefined());
+        });
+    });
+    if (!accepted) {
+        delete promiseHandle;
+        promise->reject(vm, globalObject, Bun::createError(globalObject, Bun::ErrorCode::ERR_WORKER_NOT_RUNNING, "Worker instance not running"_s));
+    }
+    return JSValue::encode(promise);
+}
+
+static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_stopCpuProfileInternalBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSWorker>::ClassParameter castedThis)
+{
+    auto* globalObject = defaultGlobalObject(lexicalGlobalObject);
+    auto& vm = JSC::getVM(globalObject);
+    auto& worker = castedThis->wrapped();
+    auto* promise = JSC::JSPromise::create(vm, globalObject->promiseStructure());
+    auto* promiseHandle = new Strong<JSPromise>(vm, promise);
+    auto parentId = globalObject->scriptExecutionContext()->identifier();
+    bool accepted = worker.isOnline() && worker.postTaskToWorkerGlobalScope([promiseHandle, parentId](ScriptExecutionContext& workerCtx) {
+        WTF::String result;
+        if (Bun::isCPUProfilerRunning())
+            Bun::stopCPUProfiler(workerCtx.vm(), &result, nullptr);
+        if (result.isEmpty())
+            result = "{\"nodes\":[],\"startTime\":0,\"endTime\":0,\"samples\":[],\"timeDeltas\":[]}"_s;
+        ScriptExecutionContext::postTaskTo(parentId, [promiseHandle, result = result.isolatedCopy()](ScriptExecutionContext& parentCtx) {
+            std::unique_ptr<Strong<JSPromise>> handle(promiseHandle);
+            handle->get()->resolve(parentCtx.globalObject(), parentCtx.vm(), jsString(parentCtx.vm(), result));
+        });
+    });
+    if (!accepted) {
+        // Worker already gone: resolve with an empty profile rather than reject,
+        // so a handle.stop() after terminate still yields parseable JSON.
+        delete promiseHandle;
+        promise->resolve(globalObject, vm, jsString(vm, String("{\"nodes\":[],\"startTime\":0,\"endTime\":0,\"samples\":[],\"timeDeltas\":[]}"_s)));
+    }
+    return JSValue::encode(promise);
+}
+
+JSC_DEFINE_HOST_FUNCTION(jsWorkerPrototypeFunction_startCpuProfileInternal, (JSGlobalObject * lexicalGlobalObject, CallFrame* callFrame))
+{
+    return IDLOperation<JSWorker>::call<jsWorkerPrototypeFunction_startCpuProfileInternalBody>(*lexicalGlobalObject, *callFrame, "startCpuProfileInternal");
+}
+
+JSC_DEFINE_HOST_FUNCTION(jsWorkerPrototypeFunction_stopCpuProfileInternal, (JSGlobalObject * lexicalGlobalObject, CallFrame* callFrame))
+{
+    return IDLOperation<JSWorker>::call<jsWorkerPrototypeFunction_stopCpuProfileInternalBody>(*lexicalGlobalObject, *callFrame, "stopCpuProfileInternal");
 }
 
 JSC_DEFINE_HOST_FUNCTION(jsWorkerPrototypeFunction_getHeapStatistics, (JSGlobalObject * lexicalGlobalObject, CallFrame* callFrame))
