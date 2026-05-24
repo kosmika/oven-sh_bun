@@ -26,7 +26,15 @@ const EventEmitter = require("node:events");
 let dns: typeof import("node:dns");
 
 const normalizedArgsSymbol = Symbol("normalizedArgs");
-const { ExceptionWithHostPort, ConnResetException, NodeAggregateError, ErrnoException } = require("internal/shared");
+const {
+  ExceptionWithHostPort,
+  ConnResetException,
+  NodeAggregateError,
+  ErrnoException,
+  hasObserver,
+  startPerf,
+  stopPerf,
+} = require("internal/shared");
 import type { Socket, SocketHandler, SocketListener } from "bun";
 import type { Server as NetServer, Socket as NetSocket, ServerOpts } from "node:net";
 import type { TLSSocket } from "node:tls";
@@ -100,6 +108,7 @@ const khandlers = Symbol("khandlers");
 const kclosed = Symbol("closed");
 const kended = Symbol("ended");
 const kpendingSession = Symbol("pendingSession");
+const kPerfHooksNetConnectContext = Symbol("kPerfHooksNetConnectContext");
 const kwriteCallback = Symbol("writeCallback");
 const kSocketClass = Symbol("kSocketClass");
 
@@ -2056,6 +2065,13 @@ function internalConnect(self, options, address, port, addressType, localAddress
     req.tls = tls;
 
     err = kConnectTcp(self, addressType, req, address, port);
+    if (err === undefined && hasObserver("net")) {
+      startPerf(self, kPerfHooksNetConnectContext, {
+        type: "net",
+        name: "connect",
+        detail: { host: address, port },
+      });
+    }
   } else {
     const req: any = {};
     req.address = address;
@@ -2260,6 +2276,10 @@ function afterConnect(status, handle, req, readable, writable) {
     self.emit("connect");
     self.emit("ready");
 
+    if (self[kPerfHooksNetConnectContext] && hasObserver("net")) {
+      stopPerf(self, kPerfHooksNetConnectContext);
+    }
+
     // Start the first read, or get an immediate EOF.
     // this doesn't actually consume any bytes, because len=0.
     if (readable && !self.isPaused()) self.read(0);
@@ -2308,6 +2328,14 @@ function afterConnectMultiple(context, current, status, handle, req, readable, w
     }
 
     return;
+  }
+
+  if (hasObserver("net")) {
+    startPerf(self, kPerfHooksNetConnectContext, {
+      type: "net",
+      name: "connect",
+      detail: { host: req.address, port: req.port },
+    });
   }
 
   afterConnect(status, self._handle, req, readable, writable);

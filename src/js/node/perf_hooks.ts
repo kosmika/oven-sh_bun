@@ -1,5 +1,5 @@
 // Hardcoded module "node:perf_hooks"
-const { throwNotImplemented } = require("internal/shared");
+const { throwNotImplemented, kNodeEntryTypes, NodeEntryObserver } = require("internal/shared");
 
 const cppCreateHistogram = $newCppFunction("JSNodePerformanceHooksHistogram.cpp", "jsFunction_createHistogram", 3) as (
   min: number,
@@ -12,7 +12,7 @@ var {
   PerformanceEntry,
   PerformanceMark,
   PerformanceMeasure,
-  PerformanceObserver,
+  PerformanceObserver: NodePerformanceObserver,
   PerformanceObserverEntryList,
 } = globalThis;
 
@@ -113,6 +113,58 @@ class PerformanceResourceTiming {
 }
 $toClass(PerformanceResourceTiming, "PerformanceResourceTiming", PerformanceEntry);
 
+const kNodeObserver = Symbol("kNodeObserver");
+const kObserverCallback = Symbol("kObserverCallback");
+
+/**
+ * The native (WebCore) observer only understands mark/measure/resource.
+ * Node-only entry types ('net', 'dns', ...) are routed to the JS-side
+ * registry in internal/shared; everything else is delegated to the native
+ * observer unchanged. (`NodePerformanceObserver` is the existing alias for
+ * the native class destructured from globalThis above.)
+ */
+class PerformanceObserverForNodeTypes extends NodePerformanceObserver {
+  constructor(callback) {
+    super(callback);
+    this[kObserverCallback] = callback;
+  }
+
+  observe(options) {
+    let requested;
+    if (options != null && typeof options === "object") {
+      if (options.entryTypes !== undefined && Array.isArray(options.entryTypes)) {
+        requested = options.entryTypes;
+      } else if (options.type !== undefined) {
+        requested = [options.type];
+      }
+    }
+    if (requested) {
+      const nodeTypes = requested.filter(type => kNodeEntryTypes.has(type));
+      if (nodeTypes.length > 0) {
+        let registration = this[kNodeObserver];
+        if (!registration) {
+          registration = this[kNodeObserver] = new NodeEntryObserver(this[kObserverCallback], this);
+        }
+        registration.observe(nodeTypes);
+        const webTypes = requested.filter(type => !kNodeEntryTypes.has(type));
+        if (webTypes.length === 0) {
+          return;
+        }
+        if (options.entryTypes !== undefined) {
+          return super.observe({ ...options, entryTypes: webTypes });
+        }
+        return super.observe({ ...options, type: webTypes[0] });
+      }
+    }
+    return super.observe(options);
+  }
+
+  disconnect() {
+    this[kNodeObserver]?.disconnect();
+    return super.disconnect();
+  }
+}
+
 export default {
   performance: {
     mark(_) {
@@ -169,7 +221,7 @@ export default {
   PerformanceEntry,
   PerformanceMark,
   PerformanceMeasure,
-  PerformanceObserver,
+  PerformanceObserver: PerformanceObserverForNodeTypes,
   PerformanceObserverEntryList,
   PerformanceNodeTiming,
   monitorEventLoopDelay: function monitorEventLoopDelay(options?: { resolution?: number }) {
