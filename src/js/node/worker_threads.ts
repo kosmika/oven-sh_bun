@@ -7,7 +7,13 @@ const EventEmitter = require("node:events");
 const Readable = require("internal/streams/readable");
 const Writable = require("internal/streams/writable");
 const { throwNotImplemented, warnNotImplementedOnce } = require("internal/shared");
-const { validateString, validateObject, validateInteger, validateNumber, validateBoolean } = require("internal/validators");
+const {
+  validateString,
+  validateObject,
+  validateInteger,
+  validateNumber,
+  validateBoolean,
+} = require("internal/validators");
 
 // Mirror node's lib/internal/worker.js name handling: default "WorkerThread",
 // validate + trim when a name is provided.
@@ -743,8 +749,10 @@ class Worker extends EventEmitter {
       if (o.sampleInterval !== undefined) validateInteger(o.sampleInterval, "options.sampleInterval", 1);
       if (o.stackDepth !== undefined) validateInteger(o.stackDepth, "options.stackDepth", 0);
       if (o.forceGC !== undefined) validateBoolean(o.forceGC, "options.forceGC");
-      if (o.includeObjectsCollectedByMajorGC !== undefined) validateBoolean(o.includeObjectsCollectedByMajorGC, "options.includeObjectsCollectedByMajorGC");
-      if (o.includeObjectsCollectedByMinorGC !== undefined) validateBoolean(o.includeObjectsCollectedByMinorGC, "options.includeObjectsCollectedByMinorGC");
+      if (o.includeObjectsCollectedByMajorGC !== undefined)
+        validateBoolean(o.includeObjectsCollectedByMajorGC, "options.includeObjectsCollectedByMajorGC");
+      if (o.includeObjectsCollectedByMinorGC !== undefined)
+        validateBoolean(o.includeObjectsCollectedByMinorGC, "options.includeObjectsCollectedByMinorGC");
     }
     if (this.#exited) {
       return Promise.$reject($ERR_WORKER_NOT_RUNNING("Worker instance not running"));
