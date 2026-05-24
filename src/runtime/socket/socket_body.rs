@@ -4116,11 +4116,12 @@ pub fn js_upgrade_duplex_to_tls(
 
     tls_ref.socket.set(from_duplex::<true>(&mut dc.upgrade));
     tls_ref.mark_active();
-    tls_ref.poll_ref.with_mut(|p| {
-        p.ref_(bun_io::posix_event_loop::get_vm_ctx(
-            bun_io::posix_event_loop::AllocatorType::Js,
-        ))
-    });
+    // Unlike a real socket, a TLS engine over a JS stream has no I/O of its
+    // own to wait for - it is driven entirely by the stream's events - so it
+    // must not hold the event loop open. Node's TLSWrap over a JS stream
+    // behaves the same way: a script that leaves a duplexPair-backed TLS pair
+    // dangling still exits. If the underlying stream is a real socket, that
+    // socket's own handle keeps the loop alive.
 
     dc.start_tls();
 
