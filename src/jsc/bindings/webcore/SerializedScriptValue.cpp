@@ -6538,7 +6538,7 @@ JSC::JSValue SerializedScriptValue::fromArrayBuffer(JSC::JSGlobalObject& domGlob
         ,
         WTF::move(m_serializedVideoChunks), WTF::move(m_serializedVideoFrames)
 #endif
-        ,
+                                                ,
         // The ArrayBuffer's contents are arbitrary bytes supplied by JS
         // (bun:jsc / node:v8 deserialize()); never treat them as having been
         // produced by an in-process create().
@@ -6799,7 +6799,7 @@ JSValue SerializedScriptValue::deserialize(JSGlobalObject& lexicalGlobalObject, 
                                       ,
         WTF::move(m_serializedVideoChunks), WTF::move(m_serializedVideoFrames)
 #endif
-        ,
+                                                ,
         // False for postMessage / structuredClone / MessagePort / Worker
         // (bytes produced by an in-process create()); true only for values
         // built by createFromWireBytes (IPC).
