@@ -67,10 +67,12 @@ const setDefaultAutoSelectFamilyAttemptTimeout = $zig("node_net_binding.zig", "s
       setDefaultAutoSelectFamily(true);
     } else if (arg.startsWith("--network-family-autoselection-attempt-timeout=")) {
       const value = Number(arg.slice(arg.indexOf("=") + 1));
-      if (Number.isFinite(value)) setDefaultAutoSelectFamilyAttemptTimeout(value);
+      // The setter validates >= 1 and clamps < 10 to 10, like Node's; ignore
+      // degenerate CLI values rather than throwing at module load.
+      if (Number.isFinite(value) && value >= 1) setDefaultAutoSelectFamilyAttemptTimeout(value);
     } else if (arg === "--network-family-autoselection-attempt-timeout" && i + 1 < execArgv.length) {
       const value = Number(execArgv[i + 1]);
-      if (Number.isFinite(value)) setDefaultAutoSelectFamilyAttemptTimeout(value);
+      if (Number.isFinite(value) && value >= 1) setDefaultAutoSelectFamilyAttemptTimeout(value);
     }
   }
 }
@@ -1736,10 +1738,9 @@ Socket.prototype._write = function _write(chunk, encoding, callback) {
     // The handle's native socket was already closed (e.g. handle.close() was
     // called directly): fail the write the way a write(2) on a closed fd does
     // in Node instead of waiting forever for a drain that never comes.
-    const code = process.platform === "win32" ? "EPIPE" : "EBADF";
-    const er = new Error(`write ${code}`) as Error & { code: string; syscall: string };
-    er.code = code;
-    er.syscall = "write";
+    // Node reports this as errnoException(UV_EBADF/UV_EPIPE, 'write'), with
+    // message, code, errno and syscall all populated.
+    const er = new ErrnoException(process.platform === "win32" ? -4047 /* UV_EPIPE */ : -9 /* UV_EBADF */, "write");
     process.nextTick(callback, er);
     return false;
   }

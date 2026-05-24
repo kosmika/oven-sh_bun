@@ -1335,6 +1335,7 @@ impl<'a> HTTPClient<'a> {
         !self.request_body().is_empty()
     }
 
+    #[inline]
     fn request_body(&self) -> &[u8] {
         // `request_body` is a `RawSlice` into `original_request_body` (sibling
         // field of `self`); the RawSlice invariant centralises the unsafe.
