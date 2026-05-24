@@ -139,8 +139,17 @@ private:
     bool m_hasMessageEventListener { false };
     bool m_hasRef { false };
 
+    // Whether .ref()/.unref() want this port to keep the loop alive (default refd);
+    // independent of m_hasRef (the .onmessage=/.ref() keepalive).
+    bool m_isRefd { true };
+    // Whether the message-listener mechanism currently holds an event-loop ref
+    // (held iff m_isRefd && m_messageEventCount > 0).
+    bool m_listenerLoopRefActive { false };
+
     uint32_t m_messageEventCount { 0 };
     static void onDidChangeListenerImpl(EventTarget& self, const AtomString& eventType, OnDidChangeListenerKind kind);
+    // Reconciles the listener event-loop ref with (m_isRefd && m_messageEventCount > 0).
+    void updateListenerEventLoopRef();
 };
 
 WebCoreOpaqueRoot root(MessagePort*);

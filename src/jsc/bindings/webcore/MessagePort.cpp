@@ -357,30 +357,43 @@ Vector<RefPtr<MessagePort>> MessagePort::entanglePorts(ScriptExecutionContext& c
     });
 }
 
+// Holds/releases an event-loop ref for the message-listener mechanism so the ref
+// matches (m_isRefd && m_messageEventCount > 0). This lets .unref() release the
+// loop-ref taken when a 'message' listener was added, and .ref() re-acquire it.
+void MessagePort::updateListenerEventLoopRef()
+{
+    bool shouldHold = m_isRefd && m_messageEventCount > 0;
+    if (shouldHold == m_listenerLoopRefActive)
+        return;
+    auto* context = scriptExecutionContext();
+    if (!context)
+        return;
+    if (shouldHold)
+        context->refEventLoop();
+    else
+        context->unrefEventLoop();
+    m_listenerLoopRefActive = shouldHold;
+}
+
 void MessagePort::onDidChangeListenerImpl(EventTarget& self, const AtomString& eventType, OnDidChangeListenerKind kind)
 {
     if (eventType != eventNames().messageEvent)
         return;
 
     auto& port = static_cast<MessagePort&>(self);
-    auto* context = port.scriptExecutionContext();
     switch (kind) {
     case Add:
-        if (port.m_messageEventCount == 0 && context)
-            context->refEventLoop();
         port.m_messageEventCount++;
         break;
     case Remove:
-        port.m_messageEventCount--;
-        if (port.m_messageEventCount == 0 && context)
-            context->unrefEventLoop();
+        if (port.m_messageEventCount > 0)
+            port.m_messageEventCount--;
         break;
     case Clear:
-        if (port.m_messageEventCount > 0 && context)
-            context->unrefEventLoop();
         port.m_messageEventCount = 0;
         break;
     }
+    port.updateListenerEventLoopRef();
 }
 
 bool MessagePort::addEventListener(const AtomString& eventType, Ref<EventListener>&& listener, const AddEventListenerOptions& options)
@@ -414,6 +427,12 @@ void MessagePort::jsRef(JSGlobalObject* lexicalGlobalObject)
     if (!isEntangled())
         return;
 
+    // Re-acquire the message-listener loop-ref (if a listener is present) that .unref() released.
+    if (!m_isRefd) {
+        m_isRefd = true;
+        updateListenerEventLoopRef();
+    }
+
     if (!m_hasRef) {
         m_hasRef = true;
         ref();
@@ -423,6 +442,13 @@ void MessagePort::jsRef(JSGlobalObject* lexicalGlobalObject)
 
 void MessagePort::jsUnref(JSGlobalObject* lexicalGlobalObject)
 {
+    // Release the message-listener loop-ref (if held) in addition to the .onmessage=/.ref()
+    // keepalive; without this a transferred port that always listens (a postMessageToThread
+    // control port) would pin the event loop forever.
+    if (m_isRefd) {
+        m_isRefd = false;
+        updateListenerEventLoopRef();
+    }
     if (m_hasRef) {
         m_hasRef = false;
         deref();

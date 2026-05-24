@@ -239,6 +239,7 @@ Object.defineProperty(MessagePort.prototype, kInspectCustom, {
 let resourceLimits = {};
 
 const BUN_WORKER_STDIO_KEY = "@@bunWorkerThreadsStdio";
+const BUN_WORKER_MESSAGING_KEY = "@@bunWorkerThreadsMessaging";
 
 // Readable fed by a control MessagePort (worker.stdout/stderr on the parent,
 // process.stdin in the worker). The peer posts Buffers; null signals EOF.
@@ -332,12 +333,22 @@ let workerData = _workerData;
 let threadId = _threadId;
 // node: main thread name is "", worker default is "WorkerThread" (trimmed).
 const threadName = isMainThread ? "" : normalizeWorkerName(_threadName);
-// Captured stdio rides inside workerData (wrapped; ports transferred). Unwrap
-// it and bind the worker's process.stdout/stderr/stdin to the control ports.
-if (workerData && typeof workerData === "object" && BUN_WORKER_STDIO_KEY in workerData) {
+// postMessageToThread (Node 22+): the Worker ctor always smuggles a control
+// MessagePort to the worker by wrapping workerData; unwrap it here.
+const messaging = require("internal/worker/messaging");
+messaging.initThreadInfo(threadId, isMainThread);
+// Captured stdio + the messaging control port ride inside workerData (wrapped;
+// ports transferred). Unwrap and bind the worker's stdio / messaging hub.
+if (
+  workerData &&
+  typeof workerData === "object" &&
+  (BUN_WORKER_STDIO_KEY in workerData || BUN_WORKER_MESSAGING_KEY in workerData)
+) {
   const stdioPorts = workerData[BUN_WORKER_STDIO_KEY];
+  const controlPort = workerData[BUN_WORKER_MESSAGING_KEY];
   workerData = workerData.data;
-  setupWorkerStdio(stdioPorts);
+  if (stdioPorts) setupWorkerStdio(stdioPorts);
+  if (controlPort) messaging.setupMainThreadPort(controlPort);
 }
 function receiveMessageOnPort(port: MessagePort) {
   let res = _receiveMessageOnPort(port);
@@ -480,6 +491,8 @@ class Worker extends EventEmitter {
   // either is the exit code if exited, a promise resolving to the exit code, or undefined if we haven't sent .terminate() yet
   #onExitPromise: Promise<number> | number | undefined = undefined;
   #urlToRevoke = "";
+  // threadId captured for cleaning up the messaging control port on close.
+  #messagingThreadId: number | undefined = undefined;
 
   constructor(filename: string, options: NodeWorkerOptions = {}) {
     super();
@@ -525,13 +538,21 @@ class Worker extends EventEmitter {
       stdioForWorker.stderr = channel.port2;
       stdioTransfer.push(channel.port2);
     }
+    // Always create a control channel so postMessageToThread can reach this worker.
+    // Wrap the user's workerData so the control port (and any stdio ports) ride
+    // along transferred; the worker unwraps it on load.
+    const { portToMain, portToWorker } = messaging.createMessagingChannel();
+    const workerDataWrapper: any = { [BUN_WORKER_MESSAGING_KEY]: portToWorker, data: options.workerData };
     if (stdioTransfer.length > 0) {
-      options = {
-        ...options,
-        workerData: { [BUN_WORKER_STDIO_KEY]: stdioForWorker, data: options.workerData },
-        transferList: options.transferList ? [...options.transferList, ...stdioTransfer] : stdioTransfer,
-      };
+      workerDataWrapper[BUN_WORKER_STDIO_KEY] = stdioForWorker;
     }
+    options = {
+      ...options,
+      workerData: workerDataWrapper,
+      transferList: options.transferList
+        ? [...options.transferList, portToWorker, ...stdioTransfer]
+        : [portToWorker, ...stdioTransfer],
+    };
 
     // `env: SHARE_ENV` requests that the worker share a live environment with
     // the parent. Convert it to a native-visible boolean flag so it doesn't hit
@@ -548,6 +569,10 @@ class Worker extends EventEmitter {
       }
       throw e;
     }
+    // threadId is only assigned once the WebWorker exists; register the hub-side
+    // control port with the messaging hub now.
+    this.#messagingThreadId = this.#worker.threadId;
+    messaging.registerMainThreadPort(this.#messagingThreadId, portToMain);
     this.#worker.addEventListener("close", this.#onClose.bind(this), { once: true });
     this.#worker.addEventListener("error", this.#onError.bind(this));
     this.#worker.addEventListener("message", this.#onMessage.bind(this));
@@ -650,6 +675,10 @@ class Worker extends EventEmitter {
 
   #onClose(e) {
     this.#exited = true;
+    if (this.#messagingThreadId !== undefined) {
+      messaging.destroyMainThreadPort(this.#messagingThreadId);
+      this.#messagingThreadId = undefined;
+    }
     // End captured stdio readables when the worker exits, even if it was
     // terminated before its own streams finished.
     if (this.#stdout) {
@@ -730,6 +759,7 @@ export default {
   markAsUncloneable,
   isMarkedAsUntransferable,
   moveMessagePortToContext,
+  postMessageToThread: messaging.postMessageToThread,
   receiveMessageOnPort,
   SHARE_ENV,
   threadId,

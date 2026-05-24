@@ -151,9 +151,10 @@ void ScriptExecutionContext::didCreateDestructionObserver(ContextDestructionObse
 
 void ScriptExecutionContext::willDestroyDestructionObserver(ContextDestructionObserver& observer)
 {
-#if ASSERT_ENABLED
-    ASSERT(!m_inScriptExecutionContextDestructor);
-#endif // ASSERT_ENABLED
+    // This can legitimately run during context teardown: a ContextDestructionObserver
+    // (e.g. a MessagePort kept alive by a pending message-dispatch task) may have its
+    // last ref released from within ~ScriptExecutionContext. remove() is safe during
+    // teardown (the set is drained one element at a time, not iterated concurrently).
     m_destructionObservers.remove(&observer);
 }
 
