@@ -111,6 +111,7 @@ const kclosed = Symbol("closed");
 const kended = Symbol("ended");
 const kpendingSession = Symbol("pendingSession");
 const kPerfHooksNetConnectContext = Symbol("kPerfHooksNetConnectContext");
+const kUserUnrefed = Symbol("kUserUnrefed");
 const kwriteCallback = Symbol("writeCallback");
 const kSocketClass = Symbol("kSocketClass");
 
@@ -1401,6 +1402,9 @@ Object.defineProperty(Socket.prototype, "pending", {
 Socket.prototype.resume = function resume() {
   if (!this.connecting) {
     this._handle?.resume();
+    if (!this[kUserUnrefed]) {
+      this._handle?.ref?.();
+    }
   }
   return Duplex.prototype.resume.$call(this);
 };
@@ -1408,6 +1412,10 @@ Socket.prototype.resume = function resume() {
 Socket.prototype.pause = function pause() {
   if (!this.destroyed) {
     this._handle?.pause();
+    // libuv only counts a stream handle as active - and therefore as keeping
+    // the event loop alive - while it is reading. A paused socket lets the
+    // process exit; resume() re-refs it unless the user explicitly unref'd.
+    this._handle?.unref?.();
   }
   return Duplex.prototype.pause.$call(this);
 };
@@ -1523,6 +1531,7 @@ Object.defineProperty(Socket.prototype, "readyState", {
 });
 
 Socket.prototype.ref = function ref() {
+  this[kUserUnrefed] = false;
   const socket = this._handle;
   if (!socket) {
     this.once("connect", this.ref);
@@ -1661,6 +1670,7 @@ Socket.prototype._unrefTimer = function _unrefTimer() {
 };
 
 Socket.prototype.unref = function unref() {
+  this[kUserUnrefed] = true;
   const socket = this._handle;
   if (!socket) {
     this.once("connect", this.unref);
