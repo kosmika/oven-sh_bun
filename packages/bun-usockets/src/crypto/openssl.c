@@ -134,6 +134,7 @@ extern const unsigned char BUN_SOCKET_KIND_BUN_SOCKET_TLS;
 /* Serialized resumable session parked by the new-session callback until the
  * SSL stack unwinds; freed with the SSL if never delivered. */
 static int us_ssl_pending_session_idx = -1;
+static int us_ssl_pending_keylog_idx = -1;
 #ifdef _WIN32
 static INIT_ONCE us_ex_idx_once = INIT_ONCE_STATIC_INIT;
 #else
@@ -183,6 +184,57 @@ static void us_ssl_pending_session_free(void *parent, void *ptr, CRYPTO_EX_DATA 
     pending = next;
   }
 }
+/* NSS key-log lines are produced from inside SSL_do_handshake/SSL_read, so
+ * they are parked on the SSL the same way new sessions are and delivered once
+ * the read unwinds. The stored bytes already carry the trailing newline Node
+ * appends before emitting 'keylog'. */
+static void us_ssl_keylog_cb(const SSL *cssl, const char *line) {
+  SSL *ssl = (SSL *)cssl;
+  if (!SSL_get_ex_data(ssl, us_ssl_is_socket_ex_idx)) {
+    return;
+  }
+  size_t line_len = strlen(line);
+  if (line_len == 0 || line_len > 4096) {
+    return;
+  }
+  struct us_ssl_pending_session_t *pending =
+      malloc(sizeof(struct us_ssl_pending_session_t) + line_len + 1);
+  if (!pending) {
+    return;
+  }
+  memcpy(pending->data, line, line_len);
+  pending->data[line_len] = '\n';
+  pending->length = (int)(line_len + 1);
+  pending->next = NULL;
+  struct us_ssl_pending_session_t *head = SSL_get_ex_data(ssl, us_ssl_pending_keylog_idx);
+  if (!head) {
+    SSL_set_ex_data(ssl, us_ssl_pending_keylog_idx, pending);
+  } else {
+    while (head->next) head = head->next;
+    head->next = pending;
+  }
+}
+
+static void ssl_flush_pending_keylog(struct us_socket_t *s) {
+  if (!s->ssl || us_socket_is_closed(s)) {
+    return;
+  }
+  struct us_ssl_pending_session_t *pending =
+      SSL_get_ex_data(s->ssl, us_ssl_pending_keylog_idx);
+  if (!pending) {
+    return;
+  }
+  SSL_set_ex_data(s->ssl, us_ssl_pending_keylog_idx, NULL);
+  while (pending) {
+    struct us_ssl_pending_session_t *next = pending->next;
+    if (!us_socket_is_closed(s) && s->ssl) {
+      us_dispatch_keylog(s, pending->data, pending->length);
+    }
+    free(pending);
+    pending = next;
+  }
+}
+
 static int us_ssl_new_session_cb(SSL *ssl, SSL_SESSION *session) {
   /* Only SSLs attached to a real us_socket_t set this marker; for any other
    * owner (the JS-stream SSL wrapper used for TLS-over-duplex) there is no
@@ -252,6 +304,7 @@ static void us_ex_idx_init(void) {
   us_ssl_listener_ex_idx = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
   us_ssl_is_socket_ex_idx = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
   us_ssl_pending_session_idx = SSL_get_ex_new_index(0, NULL, NULL, NULL, us_ssl_pending_session_free);
+  us_ssl_pending_keylog_idx = SSL_get_ex_new_index(0, NULL, NULL, NULL, us_ssl_pending_session_free);
 }
 
 #ifdef _WIN32
@@ -732,7 +785,7 @@ SSL_CTX *us_ssl_ctx_build_raw(struct us_bun_socket_context_options_t options,
                                                   SSL_SESS_CACHE_NO_INTERNAL |
                                                   SSL_SESS_CACHE_NO_AUTO_CLEAR);
   SSL_CTX_sess_set_new_cb(ssl_context, us_ssl_new_session_cb);
-
+  SSL_CTX_set_keylog_callback(ssl_context, us_ssl_keylog_cb);
   return ssl_context;
 }
 
@@ -784,7 +837,11 @@ void us_internal_ssl_attach(struct us_socket_t *s, SSL_CTX *ctx,
    * just those keeps the new-session callback a no-op for every other TLS
    * consumer (fetch, Bun.serve, postgres, websockets) instead of serializing
    * a session per handshake that the dispatch then discards. */
-  if (ssl && us_socket_kind(s) == BUN_SOCKET_KIND_BUN_SOCKET_TLS) {
+  /* The listener's own kind is always 0; the kind it assigns to accepted
+   * sockets lives in accept_kind and may not have been copied onto `s` yet
+   * when its SSL is initialized. */
+  if (ssl && (us_socket_kind(s) == BUN_SOCKET_KIND_BUN_SOCKET_TLS ||
+              (listener && listener->accept_kind == BUN_SOCKET_KIND_BUN_SOCKET_TLS))) {
     /* The very first TLS attach in a process can be a client connection, and
      * nothing on that path has registered the ex_data indices yet - using the
      * still--1 index would make CRYPTO_set_ex_data grow its slot array toward
@@ -1163,6 +1220,15 @@ struct us_socket_t *us_internal_ssl_on_writable(struct us_socket_t *s) {
 }
 
 struct us_socket_t *us_internal_ssl_on_data(struct us_socket_t *s, char *data, int length) {
+  /* An accepted node:tls socket's kind is only assigned after its SSL was
+   * attached, so the is-a-bun-socket marker the session/keylog callbacks key
+   * on may still be missing. Set it lazily before the SSL_read that will
+   * fire those callbacks. */
+  if (s->ssl && us_socket_kind(s) == BUN_SOCKET_KIND_BUN_SOCKET_TLS &&
+      !SSL_get_ex_data(s->ssl, us_ssl_is_socket_ex_idx)) {
+    us_ex_idx_ensure();
+    SSL_set_ex_data(s->ssl, us_ssl_is_socket_ex_idx, (void *)1);
+  }
   /* upgradeTLS [raw, _] half observes ciphertext before SSL_read consumes it.
    * Skip the empty-flush call from on_writable (length==0 → no real wire bytes). */
   if (s->ssl_raw_tap && length > 0) {
@@ -1218,6 +1284,7 @@ restart:
            * by the new-session callback; deliver it before the close tears
            * the connection down. */
           ssl_flush_pending_session(s);
+  ssl_flush_pending_keylog(s);
           if (ssl_gone(s)) return NULL;
           ssl_close(s, 0, NULL);
           return NULL;
@@ -1306,6 +1373,7 @@ restart:
    * new-session callback parked while it ran. The JS this dispatches may
    * close the socket. */
   ssl_flush_pending_session(s);
+  ssl_flush_pending_keylog(s);
   if (ssl_gone(s)) return NULL;
 
   return s;

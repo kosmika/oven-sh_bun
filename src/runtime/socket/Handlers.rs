@@ -36,6 +36,7 @@ pub struct Handlers {
     pub on_error: JSValue,
     pub on_handshake: JSValue,
     pub on_session: JSValue,
+    pub on_keylog: JSValue,
 
     pub binary_type: BinaryType,
 
@@ -103,6 +104,10 @@ macro_rules! for_each_callback_field {
         }
         {
             let $f = &mut $self.on_session;
+            $body
+        }
+        {
+            let $f = &mut $self.on_keylog;
             $body
         }
     }};
@@ -304,6 +309,7 @@ impl Handlers {
             on_error: JSValue::ZERO,
             on_handshake: JSValue::ZERO,
             on_session: JSValue::ZERO,
+            on_keylog: JSValue::ZERO,
             binary_type: match generated.binary_type {
                 GeneratedBinaryType::Arraybuffer => BinaryType::ArrayBuffer,
                 GeneratedBinaryType::Buffer => BinaryType::Buffer,
@@ -349,6 +355,7 @@ impl Handlers {
         assign_callback!(on_error, "onError");
         assign_callback!(on_handshake, "onHandshake");
         assign_callback!(on_session, "onSession");
+        assign_callback!(on_keylog, "onKeylog");
 
         if result.on_data.is_empty() && result.on_writable.is_empty() {
             return Err(global_object.throw_invalid_arguments(format_args!(
@@ -380,6 +387,7 @@ impl Handlers {
         self.on_error.unprotect();
         self.on_handshake.unprotect();
         self.on_session.unprotect();
+        self.on_keylog.unprotect();
     }
 
     fn with_async_context_if_needed(&mut self, global_object: &JSGlobalObject) {
@@ -407,6 +415,7 @@ impl Handlers {
         self.on_error.protect();
         self.on_handshake.protect();
         self.on_session.protect();
+        self.on_keylog.protect();
     }
 }
 

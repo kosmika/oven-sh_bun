@@ -270,6 +270,12 @@ const SocketHandlers: SocketHandler = {
       self[kpendingSession] = session;
     }
   },
+  keylog(socket, line) {
+    const self = socket.data;
+    if (!self) return;
+    self.emit("keylog", line);
+    self.server?.emit?.("keylog", line, self);
+  },
   error(socket, error) {
     const self = socket.data;
     if (!self) return;
@@ -426,6 +432,12 @@ const ServerHandlers: SocketHandler<NetSocket> = {
     if (!self.push(buffer)) {
       socket.pause();
     }
+  },
+  keylog(socket, line) {
+    const { data: self } = socket;
+    if (!self) return;
+    self.emit("keylog", line);
+    self.server?.emit?.("keylog", line, self);
   },
   close(socket, err) {
     $debug("Bun.Server close");
@@ -756,6 +768,11 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
     } else {
       self[kpendingSession] = session;
     }
+  },
+  keylog(socket, line) {
+    const { self } = socket.data;
+    if (!self) return;
+    self.emit("keylog", line);
   },
   close(socket, err) {
     $debug("Bun.Socket close");
