@@ -280,11 +280,10 @@ fn os_monotonic_ns() -> u64 {
         // QPF is a constant read from KUSER_SHARED_DATA; no need to cache.
         let mut counter: i64 = 0;
         let mut freq: i64 = 0;
-        // SAFETY: out-params are valid stack locals; QPC/QPF never fail on XP+.
-        unsafe {
-            bun_sys::windows::QueryPerformanceCounter(&mut counter);
-            bun_sys::windows::QueryPerformanceFrequency(&mut freq);
-        }
+        // QPC/QPF are declared `safe` in bun_sys (the out-param is a valid
+        // `&mut` and they never fail on XP+), so no `unsafe` block is needed.
+        bun_sys::windows::QueryPerformanceCounter(&mut counter);
+        bun_sys::windows::QueryPerformanceFrequency(&mut freq);
         return u64::try_from((counter as u128) * (NS_PER_S as u128) / (freq as u128)).unwrap();
     }
     #[cfg(not(windows))]
