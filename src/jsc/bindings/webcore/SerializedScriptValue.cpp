@@ -2957,7 +2957,8 @@ public:
         ,
         Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>>&& serializedVideoChunks, Vector<WebCodecsVideoFrameData>&& serializedVideoFrames
 #endif
-    )
+        ,
+        bool isFromUntrustedBytes)
     {
         if (!buffer.size())
             return std::make_pair(jsNull(), SerializationReturnCode::UnspecifiedError);
@@ -2979,6 +2980,7 @@ public:
             WTF::move(serializedVideoChunks), WTF::move(serializedVideoFrames)
 #endif
         );
+        deserializer.m_isFromUntrustedBytes = isFromUntrustedBytes;
         if (!deserializer.isValid())
             return std::make_pair(JSValue(), SerializationReturnCode::ValidationError);
         return deserializer.deserialize();
@@ -4799,7 +4801,7 @@ private:
         //     return JSValue();
 
         // read bun types
-        if (auto value = StructuredCloneableDeserialize::fromTagDeserialize(tag, m_lexicalGlobalObject, m_ptr, m_end)) {
+        if (auto value = StructuredCloneableDeserialize::fromTagDeserialize(tag, m_lexicalGlobalObject, m_ptr, m_end, m_isFromUntrustedBytes)) {
             JSValue deserialized = JSValue::decode(value.value());
             if (deserialized.isEmpty()) {
                 fail();
@@ -5284,6 +5286,11 @@ private:
     JSGlobalObject* const m_globalObject;
     const bool m_isDOMGlobalObject;
     // const bool m_canCreateDOMObject;
+    // Set by the static deserialize() entry point right after construction.
+    // True when the wire bytes were supplied by the caller as a raw buffer
+    // (bun:jsc / node:v8 deserialize(), IPC) rather than produced by an
+    // in-process SerializedScriptValue::create().
+    bool m_isFromUntrustedBytes { false };
     const uint8_t* m_ptr;
     const uint8_t* const m_end;
     unsigned m_version;
@@ -6531,7 +6538,11 @@ JSC::JSValue SerializedScriptValue::fromArrayBuffer(JSC::JSGlobalObject& domGlob
         ,
         WTF::move(m_serializedVideoChunks), WTF::move(m_serializedVideoFrames)
 #endif
-    );
+        ,
+        // The ArrayBuffer's contents are arbitrary bytes supplied by JS
+        // (bun:jsc / node:v8 deserialize()); never treat them as having been
+        // produced by an in-process create().
+        /* isFromUntrustedBytes */ true);
 
     if (arrayBuffer->isShared()) {
         arrayBuffer->unpin();
@@ -6788,7 +6799,11 @@ JSValue SerializedScriptValue::deserialize(JSGlobalObject& lexicalGlobalObject, 
                                       ,
         WTF::move(m_serializedVideoChunks), WTF::move(m_serializedVideoFrames)
 #endif
-    );
+        ,
+        // False for postMessage / structuredClone / MessagePort / Worker
+        // (bytes produced by an in-process create()); true only for values
+        // built by createFromWireBytes (IPC).
+        m_isFromUntrustedBytes);
     if (didFail)
         *didFail = result.second != SerializationReturnCode::SuccessfullyCompleted;
     // Deserialize may throw an exception. Similar to serialize (~L6240, SerializedScriptValue::create),
