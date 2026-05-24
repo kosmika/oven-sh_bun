@@ -1208,10 +1208,25 @@ $toClass(Server, "Server", NetServer);
 function createServer(options, connectionListener) {
   return new Server(options, connectionListener);
 }
-const DEFAULT_ECDH_CURVE = "auto",
-  // https://github.com/Jarred-Sumner/uSockets/blob/fafc241e8664243fc0c51d69684d5d02b9805134/src/crypto/openssl.c#L519-L523
-  DEFAULT_MIN_VERSION = "TLSv1.2",
+const DEFAULT_ECDH_CURVE = "auto";
+// https://github.com/Jarred-Sumner/uSockets/blob/fafc241e8664243fc0c51d69684d5d02b9805134/src/crypto/openssl.c#L519-L523
+let DEFAULT_MIN_VERSION = "TLSv1.2",
   DEFAULT_MAX_VERSION = "TLSv1.3";
+
+// Node seeds the protocol-version defaults from its --tls-min-vX.Y /
+// --tls-max-vX.Y CLI flags; the equivalent flags reach us through
+// process.execArgv. The lowest requested minimum and the highest requested
+// maximum win when several are passed, matching node_options precedence.
+{
+  const execArgv = process.execArgv;
+  const hasFlag = (flag: string) => execArgv.includes(flag);
+  if (hasFlag("--tls-min-v1.0")) DEFAULT_MIN_VERSION = "TLSv1";
+  else if (hasFlag("--tls-min-v1.1")) DEFAULT_MIN_VERSION = "TLSv1.1";
+  else if (hasFlag("--tls-min-v1.2")) DEFAULT_MIN_VERSION = "TLSv1.2";
+  else if (hasFlag("--tls-min-v1.3")) DEFAULT_MIN_VERSION = "TLSv1.3";
+  if (hasFlag("--tls-max-v1.3")) DEFAULT_MAX_VERSION = "TLSv1.3";
+  else if (hasFlag("--tls-max-v1.2")) DEFAULT_MAX_VERSION = "TLSv1.2";
+}
 
 function normalizeConnectArgs(listArgs) {
   const args = net._normalizeArgs(listArgs);
