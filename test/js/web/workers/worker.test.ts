@@ -258,7 +258,7 @@ describe("web worker", () => {
   });
 
   test("worker with process.exit", done => {
-    const worker = new Worker(new URL("worker-fixture-process-exit.js", import.meta.url).href, {
+    const worker = new Worker(new URL("worker-fixture-process-exit.js", import.meta.url), {
       smol: true,
     });
     worker.addEventListener("close", e => {
@@ -301,7 +301,7 @@ describe("web worker", () => {
 // TODO: move to node:worker_threads tests directory
 describe("worker_threads", () => {
   test("worker with process.exit", done => {
-    const worker = new wt.Worker(new URL("worker-fixture-process-exit.js", import.meta.url).href, {
+    const worker = new wt.Worker(new URL("worker-fixture-process-exit.js", import.meta.url), {
       smol: true,
     });
     worker.on("exit", code => {
@@ -327,7 +327,7 @@ describe("worker_threads", () => {
     // - the exit code is never something other than 0 or 1
     const codes: number[] = [];
     for (let i = 0; i < 10; i++) {
-      const worker = new wt.Worker(new URL("worker-fixture-hang.js", import.meta.url).href, {
+      const worker = new wt.Worker(new URL("worker-fixture-hang.js", import.meta.url), {
         smol: true,
       });
       worker.on("error", expect.unreachable);
@@ -339,7 +339,7 @@ describe("worker_threads", () => {
   });
 
   test("worker with process.exit (delay) and terminate", async () => {
-    const worker = new wt.Worker(new URL("worker-fixture-process-exit.js", import.meta.url).href, {
+    const worker = new wt.Worker(new URL("worker-fixture-process-exit.js", import.meta.url), {
       smol: true,
     });
     // Wait for the worker to self-exit (its setTimeout fires process.exit(2)
@@ -351,7 +351,7 @@ describe("worker_threads", () => {
   });
 
   test.todo("worker terminating forcefully properly interrupts", async () => {
-    const worker = new wt.Worker(new URL("worker-fixture-while-true.js", import.meta.url).href, {});
+    const worker = new wt.Worker(new URL("worker-fixture-while-true.js", import.meta.url), {});
     await new Promise<void>(done => {
       worker.on("message", () => done());
     });
