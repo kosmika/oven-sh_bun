@@ -62,6 +62,7 @@
 #include <wtf/URL.h>
 #include "SerializedScriptValue.h"
 #include "BunProcess.h"
+#include "JSEnvironmentVariableMap.h"
 #include <JavaScriptCore/JSMap.h>
 
 namespace WebCore {
@@ -231,41 +232,54 @@ template<> JSC::EncodedJSValue JSC_HOST_CALL_ATTRIBUTES JSWorkerDOMConstructor::
             }
         }
 
-        auto envValue = optionsObject->getIfPropertyExists(lexicalGlobalObject, Identifier::fromString(vm, "env"_s));
+        auto shareEnvValue = optionsObject->getIfPropertyExists(lexicalGlobalObject, Identifier::fromString(vm, "shareEnv"_s));
         RETURN_IF_EXCEPTION(throwScope, {});
-        // for now, we don't permit SHARE_ENV, because the behavior isn't implemented
-        if (envValue && !(envValue.isObject() || envValue.isUndefinedOrNull())) {
-            return Bun::ERR::INVALID_ARG_TYPE(throwScope, globalObject, "options.env"_s, "object or one of undefined, null, or worker_threads.SHARE_ENV"_s, envValue);
-        }
-        JSObject* envObject = nullptr;
-
-        if (envValue && envValue.isCell()) {
-            envObject = dynamicDowncast<JSC::JSObject>(envValue);
-        } else if (globalObject->m_processEnvObject.isInitialized()) {
-            envObject = globalObject->processEnvObject();
+        if (shareEnvValue) {
+            options.shareEnv = shareEnvValue.toBoolean(lexicalGlobalObject);
         }
 
-        if (envObject) {
-            if (!envObject->staticPropertiesReified()) {
-                envObject->reifyAllStaticProperties(globalObject);
-                RETURN_IF_EXCEPTION(throwScope, {});
-            }
-
-            JSC::PropertyNameArrayBuilder keys(vm, JSC::PropertyNameMode::Strings, JSC::PrivateSymbolMode::Exclude);
-            envObject->methodTable()->getOwnPropertyNames(envObject, lexicalGlobalObject, keys, JSC::DontEnumPropertiesMode::Exclude);
+        if (!options.shareEnv) {
+            auto envValue = optionsObject->getIfPropertyExists(lexicalGlobalObject, Identifier::fromString(vm, "env"_s));
             RETURN_IF_EXCEPTION(throwScope, {});
+            if (envValue && !(envValue.isObject() || envValue.isUndefinedOrNull())) {
+                return Bun::ERR::INVALID_ARG_TYPE(throwScope, globalObject, "options.env"_s, "object or one of undefined, null, or worker_threads.SHARE_ENV"_s, envValue);
+            }
+            JSObject* envObject = nullptr;
 
-            HashMap<String, String> env;
-
-            for (const auto& key : keys) {
-                JSValue value = envObject->get(lexicalGlobalObject, key);
-                RETURN_IF_EXCEPTION(throwScope, {});
-                String str = value.toWTFString(lexicalGlobalObject).isolatedCopy();
-                RETURN_IF_EXCEPTION(throwScope, {});
-                env.add(key.impl()->isolatedCopy(), str);
+            if (envValue && envValue.isCell()) {
+                envObject = dynamicDowncast<JSC::JSObject>(envValue);
+            } else if (globalObject->m_processEnvObject.isInitialized()) {
+                envObject = globalObject->processEnvObject();
             }
 
-            options.env.emplace(WTF::move(env));
+            if (envObject) {
+                if (!envObject->staticPropertiesReified()) {
+                    envObject->reifyAllStaticProperties(globalObject);
+                    RETURN_IF_EXCEPTION(throwScope, {});
+                }
+
+                JSC::PropertyNameArrayBuilder keys(vm, JSC::PropertyNameMode::Strings, JSC::PrivateSymbolMode::Exclude);
+                envObject->methodTable()->getOwnPropertyNames(envObject, lexicalGlobalObject, keys, JSC::DontEnumPropertiesMode::Exclude);
+                RETURN_IF_EXCEPTION(throwScope, {});
+
+                HashMap<String, String> env;
+
+                for (const auto& key : keys) {
+                    JSValue value = envObject->get(lexicalGlobalObject, key);
+                    RETURN_IF_EXCEPTION(throwScope, {});
+                    String str = value.toWTFString(lexicalGlobalObject).isolatedCopy();
+                    RETURN_IF_EXCEPTION(throwScope, {});
+                    env.add(key.impl()->isolatedCopy(), str);
+                }
+
+                options.env.emplace(WTF::move(env));
+            }
+        } else {
+            // Seed the shared store from the parent's current process.env and
+            // swap the parent's process.env to the shared write-through variant
+            // (idempotent across SHARE_ENV workers), on the parent thread.
+            Bun::enableSharedEnvForWorker(globalObject);
+            RETURN_IF_EXCEPTION(throwScope, {});
         }
 
         // needed to match the coercion behavior of `String(value)`, which returns a descriptive

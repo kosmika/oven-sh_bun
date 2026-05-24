@@ -71,7 +71,7 @@ const {
   // node:worker_threads instance instead of the Web Worker instance.
   Worker: new (...args: [...ConstructorParameters<typeof globalThis.Worker>, nodeWorker: Worker]) => WebWorker;
 };
-const SHARE_ENV = Symbol("nodejs.worker_threads.SHARE_ENV");
+const SHARE_ENV = Symbol.for("nodejs.worker_threads.SHARE_ENV");
 
 const isMainThread = Bun.isMainThread;
 const {
@@ -533,6 +533,13 @@ class Worker extends EventEmitter {
       };
     }
 
+    // `env: SHARE_ENV` requests that the worker share a live environment with
+    // the parent. Convert it to a native-visible boolean flag so it doesn't hit
+    // the object-validation throw in the native Worker constructor, and so the
+    // native side skips the env snapshot and wires up the shared store.
+    if (options && (options as any).env === SHARE_ENV) {
+      options = { ...options, env: undefined, shareEnv: true } as NodeWorkerOptions;
+    }
     try {
       this.#worker = new WebWorker(filename, options as Bun.WorkerOptions, this);
     } catch (e) {
