@@ -926,10 +926,13 @@ TLSSocket.prototype.setSession = function setSession(session) {
   return this._handle?.setSession?.(session);
 };
 
-TLSSocket.prototype.getPeerCertificate = function getPeerCertificate(abbreviated) {
+TLSSocket.prototype.getPeerCertificate = function getPeerCertificate(detailed) {
   if (this._handle) {
+    // The native parameter means "abbreviated" - the inverse of Node's
+    // `detailed`. Detailed requests get the whole chain with
+    // issuerCertificate links; everything else gets just the leaf.
     const cert =
-      arguments.length < 1 ? this._handle.getPeerCertificate?.() : this._handle.getPeerCertificate?.(abbreviated);
+      arguments.length < 1 ? this._handle.getPeerCertificate?.() : this._handle.getPeerCertificate?.(!detailed);
     if (cert) {
       return translatePeerCertificate(cert);
     }
@@ -948,7 +951,36 @@ TLSSocket.prototype.getCertificate = function getCertificate() {
 };
 
 TLSSocket.prototype.getPeerX509Certificate = function getPeerX509Certificate() {
-  return this._handle?.getPeerX509Certificate?.();
+  // Build the X509Certificate chain from the detailed peer-certificate
+  // objects, linking each to its issuer the way Node does. The
+  // `issuerCertificate` own property shadows the prototype getter (which is
+  // always undefined for certificates parsed outside a TLS connection).
+  const cert = this.getPeerCertificate(true);
+  if (!cert || !cert.raw) {
+    return this._handle?.getPeerX509Certificate?.();
+  }
+  const { X509Certificate } = require("node:crypto");
+  const seen = new Map();
+  const toX509 = chainCert => {
+    if (!chainCert || !chainCert.raw) return undefined;
+    const cached = seen.get(chainCert);
+    if (cached) return cached;
+    const x509 = new X509Certificate(chainCert.raw);
+    seen.set(chainCert, x509);
+    if (chainCert.issuerCertificate && chainCert.issuerCertificate !== chainCert) {
+      const issuer = toX509(chainCert.issuerCertificate);
+      if (issuer) {
+        Object.defineProperty(x509, "issuerCertificate", {
+          __proto__: null,
+          value: issuer,
+          configurable: true,
+          enumerable: false,
+        });
+      }
+    }
+    return x509;
+  };
+  return toX509(cert);
 };
 
 TLSSocket.prototype.getX509Certificate = function getX509Certificate() {
@@ -1103,9 +1135,12 @@ function Server(options, secureConnectionListener): void {
 
       // Pin the protocol version range the server will negotiate.
       // validateSecureContextOptions already rejected unknown method names.
-      if (options.secureProtocol !== undefined) this.secureProtocol = options.secureProtocol;
-      if (options.minVersion !== undefined) this.minVersion = options.minVersion;
-      if (options.maxVersion !== undefined) this.maxVersion = options.maxVersion;
+      // Assign unconditionally so a later setSecureContext() without these
+      // options clears the previous call's version constraints instead of
+      // re-applying them on the next listen.
+      this.secureProtocol = options.secureProtocol;
+      this.minVersion = options.minVersion;
+      this.maxVersion = options.maxVersion;
     }
   };
 

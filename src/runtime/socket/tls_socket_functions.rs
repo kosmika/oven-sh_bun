@@ -448,8 +448,29 @@ pub fn get_peer_certificate(
         return Ok(JSValue::UNDEFINED);
     }
 
-    // TODO: we need to support the non abbreviated version of this
-    Ok(JSValue::UNDEFINED)
+    // The detailed form returns the whole chain the peer presented, each
+    // certificate linking to its issuer through `issuerCertificate`, the way
+    // Node's getPeerCertificate(true) does. SSL_get_peer_cert_chain includes
+    // the leaf on the client side but not on the server side, where the +1
+    // peer certificate above is the leaf instead.
+    let first_obj = X509::to_js(boringssl::X509::opaque_mut(first_cert), global)?;
+    let mut objects: Vec<JSValue> = vec![first_obj];
+    if !cert_chain.is_null() {
+        let mut i: usize = if cert.is_null() { 1 } else { 0 };
+        loop {
+            let next =
+                ffi::sk_X509_value(boringssl::struct_stack_st_X509::opaque_ref(cert_chain), i);
+            if next.is_null() {
+                break;
+            }
+            objects.push(X509::to_js(boringssl::X509::opaque_mut(next), global)?);
+            i += 1;
+        }
+    }
+    for i in 0..objects.len().saturating_sub(1) {
+        objects[i].put(global, b"issuerCertificate", objects[i + 1]);
+    }
+    Ok(objects[0])
 }
 
 pub fn get_certificate(

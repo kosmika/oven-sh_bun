@@ -667,8 +667,10 @@ it("server-side getPeerCertificate() should not leak", async () => {
 
     // Unpatched, the BIO leak alone is ~800 bytes/call → ~40MB over the
     // 50k abbreviated calls here (~20MB for 25k in debug). Leave slack for
-    // allocator/ASAN noise but stay well below that.
-    const threshold = 1024 * 1024 * (isDebug ? 10 : isASAN ? 16 : 12);
+    // allocator/ASAN noise but stay well below that. Both calls in the loop
+    // now build the full leaf-certificate object (getPeerCertificate(false)
+    // used to return {}), so the debug budget covers 2x the constructions.
+    const threshold = 1024 * 1024 * (isDebug ? 20 : isASAN ? 16 : 12);
     expect(growth).toBeLessThan(threshold);
   } finally {
     client.end();

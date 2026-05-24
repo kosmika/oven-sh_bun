@@ -180,6 +180,7 @@ function onConnectEnd() {
   }
 }
 
+
 /**
  * Build the Error for a handshake that failed before completing. A fatal SSL
  * protocol error (wrong version number, bad record, ...) carries the OpenSSL
