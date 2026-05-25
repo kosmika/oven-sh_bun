@@ -513,7 +513,12 @@ static void applySharedEnvSideEffects(JSGlobalObject* globalObject, const String
     }
     // Proxy vars: fetch()'s getHttpProxyFor() reads the Zig env map, so sync.
     static constexpr ASCIILiteral proxyVarNames[] = {
-        "HTTP_PROXY"_s, "http_proxy"_s, "HTTPS_PROXY"_s, "https_proxy"_s, "NO_PROXY"_s, "no_proxy"_s,
+        "HTTP_PROXY"_s,
+        "http_proxy"_s,
+        "HTTPS_PROXY"_s,
+        "https_proxy"_s,
+        "NO_PROXY"_s,
+        "no_proxy"_s,
     };
     for (auto proxyName : proxyVarNames) {
         if (key == proxyName) {
