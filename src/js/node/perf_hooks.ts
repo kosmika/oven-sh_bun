@@ -165,6 +165,15 @@ class PerformanceObserverForNodeTypes extends NodePerformanceObserver {
       if (nodeTypes.length > 0) {
         const webTypes = requested.filter(type => !kNodeEntryTypes.has(type));
         if (webTypes.length === 0) {
+          // observe({entryTypes}) replaces the whole observed set: a
+          // previously-subscribed web type must stop firing when the new set
+          // is node-only. The native impl rejects an empty entryTypes array,
+          // so drop the subscription instead of re-observing with [].
+          if (!isTypeMode) {
+            try {
+              super.disconnect();
+            } catch {}
+          }
           return;
         }
         if (options.entryTypes !== undefined) {

@@ -820,6 +820,7 @@ function TLSSocket(socket?, options?) {
     const sniCallback = options.SNICallback;
     if (sniCallback != null) {
       validateFunction(sniCallback, "options.SNICallback");
+      this._SNICallback = sniCallback;
     }
   }
 
