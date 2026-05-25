@@ -475,7 +475,11 @@ pub fn get_peer_certificate(
     // the leaf on the client side but not on the server side, where the +1
     // peer certificate above is the leaf instead.
     let first_obj = X509::to_js(boringssl::X509::opaque_mut(first_cert), global)?;
-    let mut objects: Vec<JSValue> = vec![first_obj];
+    // Link each certificate to its predecessor immediately so every object in
+    // the chain is reachable from the stack-rooted `first_obj` before the next
+    // `X509::to_js` allocation can trigger a GC - a heap-backed Vec<JSValue>
+    // is not stack-scanned.
+    let mut prev_obj: JSValue = first_obj;
     let mut last_cert: *mut boringssl::X509 = first_cert;
     if !cert_chain.is_null() {
         let mut i: usize = if cert.is_null() { 1 } else { 0 };
@@ -485,7 +489,9 @@ pub fn get_peer_certificate(
             if next.is_null() {
                 break;
             }
-            objects.push(X509::to_js(boringssl::X509::opaque_mut(next), global)?);
+            let obj = X509::to_js(boringssl::X509::opaque_mut(next), global)?;
+            prev_obj.put(global, b"issuerCertificate", obj);
+            prev_obj = obj;
             last_cert = next;
             i += 1;
         }
@@ -525,7 +531,10 @@ pub fn get_peer_certificate(
                         break;
                     }
                     match X509::to_js(boringssl::X509::opaque_mut(issuer), global) {
-                        Ok(obj) => objects.push(obj),
+                        Ok(obj) => {
+                            prev_obj.put(global, b"issuerCertificate", obj);
+                            prev_obj = obj;
+                        }
                         Err(e) => {
                             boringssl::X509_free(issuer);
                             for extra in extras {
@@ -547,15 +556,11 @@ pub fn get_peer_certificate(
         }
     }
 
-    for i in 0..objects.len().saturating_sub(1) {
-        objects[i].put(global, b"issuerCertificate", objects[i + 1]);
-    }
     // A self-issued terminal certificate references itself, like Node.
-    if !objects.is_empty() && last_is_self_issued {
-        let last = objects[objects.len() - 1];
-        last.put(global, b"issuerCertificate", last);
+    if last_is_self_issued {
+        prev_obj.put(global, b"issuerCertificate", prev_obj);
     }
-    Ok(objects[0])
+    Ok(first_obj)
 }
 
 pub fn get_certificate(

@@ -797,6 +797,18 @@ int us_ssl_ctx_add_ca_cert(SSL_CTX *ctx, const char *content) {
     return 0;
   }
   X509_STORE *store = SSL_CTX_get_cert_store(ctx);
+  /* Clone-on-write: a context that shares the process-wide default root
+   * store must get its own copy before a CA is appended, or the addition
+   * would be visible to every other context in the process - the same
+   * root_cert_store check Node's SecureContext::AddCACert performs. */
+  if (store && store == us_get_shared_default_ca_store()) {
+    X509_STORE *own = us_get_default_ca_store();
+    if (!own) {
+      return 0;
+    }
+    SSL_CTX_set_cert_store(ctx, own);
+    store = own;
+  }
   if (!store) {
     return 0;
   }
