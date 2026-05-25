@@ -1,9 +1,9 @@
 use core::ffi::{c_char, c_int, c_long, c_void};
 
-use bun_boringssl_sys as boringssl;
 use crate::api::bun_secure_context::SecureContext;
-use bun_jsc::JsClass as _;
+use bun_boringssl_sys as boringssl;
 use bun_core::{String as BunString, ZigString, strings};
+use bun_jsc::JsClass as _;
 use bun_jsc::{
     self as jsc, CallFrame, JSGlobalObject, JSValue, JsResult, StringJsc as _, ZigStringJsc as _,
 };
@@ -838,11 +838,7 @@ pub fn get_tls_peer_finished_message(
 /// `tlsSocket.setKeyCert(secureContext)` - serve this connection's identity
 /// from the given context: SSL_set_SSL_CTX swaps the cert/key/chain used for
 /// the rest of the handshake (Node calls it from ALPNCallback / SNICallback).
-pub fn set_key_cert(
-    this: &This,
-    global: &JSGlobalObject,
-    frame: &CallFrame,
-) -> JsResult<JSValue> {
+pub fn set_key_cert(this: &This, global: &JSGlobalObject, frame: &CallFrame) -> JsResult<JSValue> {
     if this.socket.get().is_detached() {
         return Ok(JSValue::UNDEFINED);
     }

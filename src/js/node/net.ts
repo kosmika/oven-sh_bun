@@ -948,7 +948,6 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
 // the handshake for every client whose SNI does not match a registered name.
 const { serverName: _serverNameHandler, ...ServerHandlersNoSNI } = ServerHandlers;
 
-
 function kConnectTcp(self, addressType, req, address, port) {
   $debug("SocketHandle.kConnectTcp", addressType, address, port);
   const promise = doConnect(self._handle, {
