@@ -1563,9 +1563,13 @@ Object.defineProperty(Socket.prototype, "pending", {
 Socket.prototype.resume = function resume() {
   if (!this.connecting) {
     this._handle?.resume();
-    if (!this[kUserUnrefed]) {
-      this._handle?.ref?.();
-    }
+  }
+  // Not gated on the connect state: a pause() while connecting drops the
+  // handle's hold on the loop and a resume() while still connecting must be
+  // able to undo that. Only the native read-start has to wait for the
+  // connect to finish.
+  if (!this[kUserUnrefed]) {
+    this._handle?.ref?.();
   }
   return Duplex.prototype.resume.$call(this);
 };
@@ -1576,12 +1580,7 @@ Socket.prototype.pause = function pause() {
     // libuv only counts a stream handle as active - and therefore as keeping
     // the event loop alive - while it is reading. A paused socket lets the
     // process exit; resume() re-refs it unless the user explicitly unref'd.
-    // A pending connect keeps the handle active regardless of the read
-    // state, so do not unref a still-connecting socket - resume() skips its
-    // re-ref while connecting and could never undo it.
-    if (!this.connecting) {
-      this._handle?.unref?.();
-    }
+    this._handle?.unref?.();
   }
   return Duplex.prototype.pause.$call(this);
 };
