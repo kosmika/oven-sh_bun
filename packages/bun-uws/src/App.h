@@ -289,9 +289,15 @@ public:
     TemplatedApp(TemplatedApp &&other) = delete;
 
 private:
-    static void onMissingServerName(struct us_listen_socket_t *ls, const char *hostname) {
+    static struct ssl_ctx_st *onMissingServerName(struct us_listen_socket_t *ls, const char *hostname) {
         auto *httpContext = (HttpContext<SSL> *) us_socket_group_ext(us_listen_socket_group(ls));
         httpContext->getSocketContextData()->missingServerNameHandler(hostname);
+        /* The handler is expected to have registered the name via
+         * addServerName(); hand the newly-registered context back so the
+         * in-flight handshake uses it (the resolver no longer re-checks the
+         * SNI tree after this callback returns). The handler may also have
+         * closed the listener, freeing the tree. */
+        return us_listen_socket_find_server_name_ctx(ls, hostname);
     }
 
     TemplatedApp(SocketContextOptions options) {

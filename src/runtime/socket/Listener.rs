@@ -1870,11 +1870,13 @@ impl WindowsNamedPipeListeningContext {
 
 // ported from: src/runtime/socket/Listener.zig
 
-/// `openssl.c`'s `resolve_listener_ctx` calls this on an SNI-map miss so the
-/// JS `SNICallback` can register a context for the requested hostname before
-/// the C side re-checks the map. The callback contract is synchronous: a
-/// context registered after this returns has no effect on the in-flight
-/// handshake (it falls through to the default context).
+/// `openssl.c`'s `sni_cb` calls this on an SNI-map miss so the JS
+/// `SNICallback` can pick a context for the requested hostname. The returned
+/// `SSL_CTX*` (or null for "use the default") applies to the in-flight
+/// handshake only - the caller installs it with `SSL_set_SSL_CTX`, which takes
+/// its own reference, and nothing is cached in the SNI tree, so the callback
+/// runs per-connection the way Node's does. The contract is synchronous: a
+/// context provided after this returns has no effect on this handshake.
 ///
 /// # Safety
 /// `ls` is a live listen socket whose accept-group ext holds a `*mut Listener`
@@ -1883,27 +1885,27 @@ impl WindowsNamedPipeListeningContext {
 pub(crate) extern "C" fn us_dispatch_server_name(
     ls: *mut uws_sys::ListenSocket,
     hostname: *const core::ffi::c_char,
-) {
+) -> *mut c_void {
     jsc::mark_binding!();
     if ls.is_null() || hostname.is_null() {
-        return;
+        return core::ptr::null_mut();
     }
     // SAFETY: `ls` is live per the fn contract; the accept group's ext holds
     // the owning `*mut Listener` for the lifetime of the listen socket.
     let listener_ptr: *mut Listener = unsafe { (*ls).group().owner::<Listener>() };
     if listener_ptr.is_null() {
-        return;
+        return core::ptr::null_mut();
     }
     // SAFETY: see above.
     let listener: &Listener = unsafe { &*listener_ptr };
     // SAFETY: `handlers` is embedded in the live Listener.
     let handlers = unsafe { &*listener.handlers.as_ptr() };
     if handlers.vm.is_shutting_down() {
-        return;
+        return core::ptr::null_mut();
     }
     let callback = handlers.on_server_name;
     if callback.is_empty() {
-        return;
+        return core::ptr::null_mut();
     }
     // No `Handlers::enter`/`exit` scope here: that protocol tracks the
     // accepted-socket callback lifecycle (an exit returning true means "the
@@ -1927,5 +1929,14 @@ pub(crate) extern "C" fn us_dispatch_server_name(
     };
     if let Some(err_value) = result.to_error() {
         let _ = handlers.call_error_handler(this_value, &[this_value, err_value]);
+        return core::ptr::null_mut();
     }
+    // The JS handler returns the native SecureContext selected by a
+    // synchronous SNICallback, or undefined to fall through to the default.
+    if let Some(sc) = SecureContext::from_js(result) {
+        // SAFETY: from_js returned non-null; the SecureContext is live for the
+        // call and SSL_set_SSL_CTX takes its own reference to the SSL_CTX.
+        return unsafe { (*sc).borrow() }.cast();
+    }
+    core::ptr::null_mut()
 }

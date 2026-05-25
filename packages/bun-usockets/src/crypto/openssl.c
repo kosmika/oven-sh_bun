@@ -1554,13 +1554,7 @@ static void sni_node_destructor(void *user) {
 
 static struct sni_node_t *resolve_listener_ctx(struct us_listen_socket_t *ls, const char *hostname) {
   if (!ls->sni) return NULL;
-  struct sni_node_t *node = (struct sni_node_t *)sni_find(ls->sni, hostname);
-  if (!node) {
-    if (!ls->on_server_name) return NULL;
-    ls->on_server_name(ls, hostname);
-    node = (struct sni_node_t *)sni_find(ls->sni, hostname);
-  }
-  return node;
+  return (struct sni_node_t *)sni_find(ls->sni, hostname);
 }
 
 static int sni_cb(SSL *ssl, int *al, void *arg) {
@@ -1574,7 +1568,19 @@ static int sni_cb(SSL *ssl, int *al, void *arg) {
   const char *hostname = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
   if (hostname && hostname[0]) {
     struct sni_node_t *node = resolve_listener_ctx(ls, hostname);
-    if (node) SSL_set_SSL_CTX(ssl, node->ctx);
+    if (node) {
+      SSL_set_SSL_CTX(ssl, node->ctx);
+    } else if (ls->on_server_name) {
+      /* No statically-registered context: ask the dynamic resolver (the JS
+       * SNICallback) for one. The result applies to this handshake only -
+       * SSL_set_SSL_CTX takes its own reference - and is deliberately NOT
+       * cached in the SNI tree, so the callback runs per-connection the way
+       * Node's does and an attacker-controlled servername cannot grow the
+       * tree. The callback runs JS and may close this listener; nothing
+       * below touches ls after it returns. */
+      SSL_CTX *dyn = ls->on_server_name(ls, hostname);
+      if (dyn) SSL_set_SSL_CTX(ssl, dyn);
+    }
   }
   return SSL_TLSEXT_ERR_OK;
 }
@@ -1624,8 +1630,18 @@ void *us_listen_socket_find_server_name_userdata(struct us_listen_socket_t *ls,
   return node ? node->user : NULL;
 }
 
+/* Returns the SSL_CTX registered for `hostname_pattern` via
+ * us_listen_socket_add_server_name, or NULL. Borrowed - the SNI tree keeps
+ * its reference. */
+struct ssl_ctx_st *us_listen_socket_find_server_name_ctx(struct us_listen_socket_t *ls,
+                                                         const char *hostname_pattern) {
+  if (!ls->sni) return NULL;
+  struct sni_node_t *node = (struct sni_node_t *)sni_find(ls->sni, hostname_pattern);
+  return node ? node->ctx : NULL;
+}
+
 void us_listen_socket_on_server_name(struct us_listen_socket_t *ls,
-                                     void (*cb)(struct us_listen_socket_t *, const char *)) {
+                                     struct ssl_ctx_st *(*cb)(struct us_listen_socket_t *, const char *)) {
   ls->on_server_name = cb;
 }
 

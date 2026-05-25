@@ -466,22 +466,26 @@ const ServerHandlers: SocketHandler<NetSocket> = {
     self.server?.emit?.("keylog", line, self);
   },
   serverName(server, servername) {
-    // The native SNI resolver re-checks its hostname map synchronously after
-    // this returns, so only a context registered by a synchronous SNICallback
-    // takes effect for the in-flight handshake; an asynchronous callback falls
-    // through to the default context. The native dispatch passes the
-    // listener's `data` (the owning tls.Server) directly.
+    // Returns the native SecureContext a synchronous SNICallback selects for
+    // this handshake, or undefined to fall through to the default context.
+    // The native side installs it on the in-flight SSL only - nothing is
+    // cached, so the callback runs per-connection the way Node's does. An
+    // asynchronous callback resolves after the native resolver has already
+    // returned and therefore falls through to the default context. The
+    // native dispatch passes the listener's `data` (the owning tls.Server)
+    // directly.
     const cb = server?._SNICallback;
-    if (typeof cb !== "function" || !servername) return;
+    if (typeof cb !== "function" || !servername) return undefined;
+    let selected;
     cb.$call(server, servername, (err, context) => {
       // Node assigns `sni_context = context.context || context` and its
       // native side ignores anything that is not a real SecureContext, so a
-      // bare `{}` (or undefined) falls through to the default context rather
-      // than registering an empty cert-less one.
+      // bare `{}` (or undefined) falls through to the default context.
       if (!err && context && typeof context === "object" && context.context) {
-        server.addContext(servername, context);
+        selected = context.context;
       }
     });
+    return selected;
   },
   close(socket, err) {
     $debug("Bun.Server close");

@@ -380,7 +380,10 @@ struct us_listen_socket_t {
   struct ssl_ctx_st *ssl_ctx;
   /* SNI hostname → {SSL_CTX*, user*} tree. Owned. */
   void *sni;
-  void (*on_server_name)(struct us_listen_socket_t *, const char *hostname);
+  /* Dynamic SNI resolver: returns the SSL_CTX to serve for `hostname` on the
+   * in-flight handshake only (the caller does not cache it), or NULL to fall
+   * through to the default context. */
+  struct ssl_ctx_st *(*on_server_name)(struct us_listen_socket_t *, const char *hostname);
   unsigned int socket_ext_size;
   /* kind to stamp on accepted sockets. */
   unsigned char accept_kind;
