@@ -196,6 +196,61 @@ function getValidCiphersSet() {
   return _VALID_CIPHERS_SET;
 }
 
+// OpenSSL cipher-list selector keywords that are not literal suite names.
+const CIPHER_LIST_SELECTORS = new Set([
+  "DEFAULT",
+  "ALL",
+  "COMPLEMENTOFDEFAULT",
+  "COMPLEMENTOFALL",
+  "HIGH",
+  "MEDIUM",
+  "LOW",
+  "PSK",
+  "aNULL",
+  "eNULL",
+  "NULL",
+  "EXPORT",
+  "EXP",
+  "kRSA",
+  "aRSA",
+  "RSA",
+  "kDHE",
+  "kEDH",
+  "DH",
+  "DHE",
+  "EDH",
+  "kECDHE",
+  "kEECDH",
+  "ECDHE",
+  "EECDH",
+  "ECDH",
+  "aECDSA",
+  "ECDSA",
+  "aDSS",
+  "DSS",
+  "AES",
+  "AESGCM",
+  "AESCCM",
+  "CHACHA20",
+  "3DES",
+  "DES",
+  "RC4",
+  "RC2",
+  "MD5",
+  "SHA",
+  "SHA1",
+  "SHA256",
+  "SHA384",
+  "CAMELLIA",
+  "ARIA",
+  "SRP",
+  "TLSv1",
+  "TLSv1.0",
+  "TLSv1.2",
+  "TLSv1.3",
+  "SSLv3",
+]);
+
 function validateCiphers(ciphers: string, name: string = "options") {
   // Set the cipher list and cipher suite before anything else because
   // @SECLEVEL=<n> changes the security level and that affects subsequent
@@ -209,6 +264,22 @@ function validateCiphers(ciphers: string, name: string = "options") {
     const requested = ciphers.split(":");
     for (const r of requested) {
       if (r && !ciphersSet.has(r)) {
+        // OpenSSL cipher-list grammar: `!X`/`-X`/`+X` operators, `A+B`
+        // intersections, `@SECLEVEL=n`/`@STRENGTH` directives and selector
+        // keywords (HIGH, PSK, aNULL, ...) are not literal cipher names -
+        // leave their evaluation to BoringSSL. Only an unrecognized literal
+        // suite name is rejected here.
+        const first = r.charCodeAt(0);
+        if (
+          first === 0x21 /* ! */ ||
+          first === 0x2d /* - */ ||
+          first === 0x2b /* + */ ||
+          first === 0x40 /* @ */ ||
+          r.includes("+") ||
+          CIPHER_LIST_SELECTORS.has(r)
+        ) {
+          continue;
+        }
         throw $ERR_SSL_NO_CIPHER_MATCH();
       }
     }

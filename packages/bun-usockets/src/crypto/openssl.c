@@ -800,8 +800,13 @@ int us_ssl_ctx_add_ca_cert(SSL_CTX *ctx, const char *content) {
   /* Clone-on-write: a context that shares the process-wide default root
    * store must get its own copy before a CA is appended, or the addition
    * would be visible to every other context in the process - the same
-   * root_cert_store check Node's SecureContext::AddCACert performs. */
-  if (store && store == us_get_shared_default_ca_store()) {
+   * root_cert_store check Node's SecureContext::AddCACert performs.
+   * us_get_shared_default_ca_store() up-refs before returning, so release
+   * the reference taken just for this comparison. */
+  X509_STORE *shared = us_get_shared_default_ca_store();
+  int store_is_shared = store && store == shared;
+  X509_STORE_free(shared);
+  if (store_is_shared) {
     X509_STORE *own = us_get_default_ca_store();
     if (!own) {
       return 0;
@@ -1315,7 +1320,7 @@ restart:
            * by the new-session callback; deliver it before the close tears
            * the connection down. */
           ssl_flush_pending_session(s);
-  ssl_flush_pending_keylog(s);
+          ssl_flush_pending_keylog(s);
           if (ssl_gone(s)) return NULL;
           ssl_close(s, 0, NULL);
           return NULL;
