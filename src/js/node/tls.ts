@@ -273,9 +273,12 @@ function validateCiphers(ciphers: string, name: string = "options") {
         // @SECLEVEL with INVALID_COMMAND. Report that the way the native
         // parser would, with Node's decomposed error shape.
         if (r.startsWith("@SECLEVEL") || r.includes("@SECLEVEL")) {
-          const err = new Error(
-            "error:0f000076:SSL routines:OPENSSL_internal:INVALID_COMMAND",
-          ) as Error & { code: string; library: string; function: string; reason: string };
+          const err = new Error("error:0f000076:SSL routines:OPENSSL_internal:INVALID_COMMAND") as Error & {
+            code: string;
+            library: string;
+            function: string;
+            reason: string;
+          };
           err.code = "ERR_SSL_INVALID_COMMAND";
           err.library = "SSL routines";
           err.function = "OPENSSL_internal";
