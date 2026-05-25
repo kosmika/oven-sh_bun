@@ -1596,7 +1596,7 @@ function setDefaultCACertificates(certs: ReadonlyArray<CACertInput>): void {
         // files routinely begin with comment headers (curl's cacert.pem,
         // RHEL's ca-bundle.crt) that the lookahead split leaves as a leading
         // non-PEM element.
-        text.split(/(?=-----BEGIN [A-Z0-9 ]*CERTIFICATE-----)/).filter(block => block.includes("-----BEGIN"))
+        text.split(/(?=-----BEGIN [A-Z0-9 ]*CERTIFICATE-----)/).filter(block => block.includes("CERTIFICATE-----"))
       : [cert];
     for (const block of blocks) {
       const x509 = new _X509CertificateClass(block as CACertInput);
