@@ -1,6 +1,8 @@
 use core::ffi::{c_char, c_int, c_long, c_void};
 
 use bun_boringssl_sys as boringssl;
+use crate::api::bun_secure_context::SecureContext;
+use bun_jsc::JsClass as _;
 use bun_core::{String as BunString, ZigString, strings};
 use bun_jsc::{
     self as jsc, CallFrame, JSGlobalObject, JSValue, JsResult, StringJsc as _, ZigStringJsc as _,
@@ -188,6 +190,9 @@ pub mod ffi {
         pub safe fn SSL_set_ex_data(ssl: &SSL, idx: c_int, data: *mut c_void) -> c_int;
         // Returns the borrowed parent CTX (always non-null for a live `SSL*`).
         pub safe fn SSL_get_SSL_CTX(ssl: &SSL) -> *mut SSL_CTX;
+        // Swaps the cert/key/chain (and session-related state) this connection
+        // serves to those of `ctx`; takes its own reference to `ctx`.
+        pub fn SSL_set_SSL_CTX(ssl: *mut SSL, ctx: *mut SSL_CTX) -> *mut SSL_CTX;
         // Atomic refcount bump on a live `SSL_CTX*`; opaque-ZST ref ⇒ no
         // caller-side precondition (route via `SSL_CTX::opaque_ref`).
         pub safe fn SSL_CTX_up_ref(ctx: &SSL_CTX) -> c_int;
@@ -828,6 +833,37 @@ pub fn get_tls_peer_finished_message(
     let result_size = unsafe { ffi::SSL_get_peer_finished(ssl_ptr, buffer_ptr, buffer_size) };
     debug_assert!(result_size == size);
     Ok(buffer)
+}
+
+/// `tlsSocket.setKeyCert(secureContext)` - serve this connection's identity
+/// from the given context: SSL_set_SSL_CTX swaps the cert/key/chain used for
+/// the rest of the handshake (Node calls it from ALPNCallback / SNICallback).
+pub fn set_key_cert(
+    this: &This,
+    global: &JSGlobalObject,
+    frame: &CallFrame,
+) -> JsResult<JSValue> {
+    if this.socket.get().is_detached() {
+        return Ok(JSValue::UNDEFINED);
+    }
+    let args = frame.arguments_old::<1>();
+    if args.len < 1 {
+        return Err(global.throw(format_args!("setKeyCert requires a SecureContext")));
+    }
+    let Some(sc) = SecureContext::from_js(args.ptr[0]) else {
+        return Err(global.throw(format_args!("setKeyCert requires a SecureContext")));
+    };
+    let Some(ssl_ptr) = this.socket.get().ssl() else {
+        return Ok(JSValue::UNDEFINED);
+    };
+    // SAFETY: `sc` is a live SecureContext; borrow() hands back an owned
+    // reference and SSL_set_SSL_CTX takes its own, so release the temporary.
+    unsafe {
+        let ctx = (*sc).borrow();
+        ffi::SSL_set_SSL_CTX(ssl_ptr.cast(), ctx.cast());
+        boringssl::SSL_CTX_free(ctx.cast());
+    }
+    Ok(JSValue::UNDEFINED)
 }
 
 pub fn export_keying_material(

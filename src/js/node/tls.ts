@@ -986,6 +986,14 @@ TLSSocket.prototype.getTLSTicket = function getTLSTicket() {
   return this._handle?.getTLSTicket?.();
 };
 
+TLSSocket.prototype.setKeyCert = function setKeyCert(context) {
+  // Serve this connection's identity from the given context (Node calls this
+  // from ALPNCallback/SNICallback before the certificate is sent). Accepts a
+  // SecureContext or the same options object createSecureContext takes.
+  const ctx = context?.context ? context : createSecureContext(context);
+  this._handle?.setKeyCert(ctx.context);
+};
+
 TLSSocket.prototype.exportKeyingMaterial = function exportKeyingMaterial(length, label, context) {
   // https://github.com/nodejs/node/blob/v25.2.1/lib/internal/tls/wrap.js#L1039
   validateUint32(length, "length", true);

@@ -3349,6 +3349,14 @@ impl<const SSL: bool> NewSocket<SSL> {
         }
     }
     #[bun_jsc::host_fn(method)]
+    pub fn set_key_cert(this: &Self, g: &JSGlobalObject, f: &CallFrame) -> JsResult<JSValue> {
+        if SSL {
+            tls_socket_functions::set_key_cert(Self::as_tls(this), g, f)
+        } else {
+            Ok(JSValue::UNDEFINED)
+        }
+    }
+    #[bun_jsc::host_fn(method)]
     pub fn export_keying_material(
         this: &Self,
         g: &JSGlobalObject,
