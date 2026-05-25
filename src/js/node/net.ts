@@ -963,11 +963,7 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
 // config has neither handler never registers the native SNI/ALPN dispatches,
 // so a server without an SNICallback or ALPNCallback does not pay a JS
 // round-trip from inside the handshake for them.
-const {
-  serverName: _serverNameHandler,
-  alpnCallback: _alpnCallbackHandler,
-  ...ServerHandlersNoSNI
-} = ServerHandlers;
+const { serverName: _serverNameHandler, alpnCallback: _alpnCallbackHandler, ...ServerHandlersNoSNI } = ServerHandlers;
 
 /** The handler table for a listen config: the full table only when a
  *  per-connection callback is configured, so other servers never pay a JS
@@ -975,7 +971,6 @@ const {
 function serverHandlersFor(server) {
   return server._SNICallback || server._ALPNCallback ? ServerHandlers : ServerHandlersNoSNI;
 }
-
 
 function kConnectTcp(self, addressType, req, address, port) {
   $debug("SocketHandle.kConnectTcp", addressType, address, port);
