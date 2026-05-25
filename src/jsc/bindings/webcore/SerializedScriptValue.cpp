@@ -1709,45 +1709,34 @@ private:
                 auto errorTypeString = errorTypeValue.toWTFString(m_lexicalGlobalObject);
                 RETURN_IF_EXCEPTION(scope, false);
 
-                String message;
-                PropertyDescriptor messageDescriptor;
-                if (errorInstance->getOwnPropertyDescriptor(m_lexicalGlobalObject, vm.propertyNames->message, messageDescriptor) && messageDescriptor.isDataDescriptor()) {
-                    scope.assertNoException();
-                    message = messageDescriptor.value().toWTFString(m_lexicalGlobalObject);
+                // Read error fields with get() under one catch scope. Some
+                // (stack, and line/column/sourceURL when derived from it) are
+                // lazily materialized via Error.prepareStackTrace, which can throw;
+                // a throwing getter must drop that field rather than asserting in
+                // getOwnPropertyDescriptor / aborting serialization (node drops the
+                // stack to undefined in that case).
+                String message, sourceURL, stack;
+                unsigned line = 0, column = 0;
+                {
+                    auto fieldScope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
+                    const auto readString = [&](const JSC::Identifier& name, String& out) {
+                        JSValue v = errorInstance->get(m_lexicalGlobalObject, name);
+                        if (!fieldScope.exception() && v.isString())
+                            out = v.toWTFString(m_lexicalGlobalObject);
+                        (void)fieldScope.tryClearException();
+                    };
+                    const auto readNumber = [&](const JSC::Identifier& name, unsigned& out) {
+                        JSValue v = errorInstance->get(m_lexicalGlobalObject, name);
+                        if (!fieldScope.exception() && v.isNumber())
+                            out = v.toNumber(m_lexicalGlobalObject);
+                        (void)fieldScope.tryClearException();
+                    };
+                    readString(vm.propertyNames->message, message);
+                    readNumber(vm.propertyNames->line, line);
+                    readNumber(vm.propertyNames->column, column);
+                    readString(vm.propertyNames->sourceURL, sourceURL);
+                    readString(vm.propertyNames->stack, stack);
                 }
-                RETURN_IF_EXCEPTION(scope, false);
-
-                unsigned line = 0;
-                PropertyDescriptor lineDescriptor;
-                if (errorInstance->getOwnPropertyDescriptor(m_lexicalGlobalObject, vm.propertyNames->line, lineDescriptor) && lineDescriptor.isDataDescriptor()) {
-                    scope.assertNoException();
-                    line = lineDescriptor.value().toNumber(m_lexicalGlobalObject);
-                }
-                RETURN_IF_EXCEPTION(scope, false);
-
-                unsigned column = 0;
-                PropertyDescriptor columnDescriptor;
-                if (errorInstance->getOwnPropertyDescriptor(m_lexicalGlobalObject, vm.propertyNames->column, columnDescriptor) && columnDescriptor.isDataDescriptor()) {
-                    scope.assertNoException();
-                    column = columnDescriptor.value().toNumber(m_lexicalGlobalObject);
-                }
-                RETURN_IF_EXCEPTION(scope, false);
-
-                String sourceURL;
-                PropertyDescriptor sourceURLDescriptor;
-                if (errorInstance->getOwnPropertyDescriptor(m_lexicalGlobalObject, vm.propertyNames->sourceURL, sourceURLDescriptor) && sourceURLDescriptor.isDataDescriptor()) {
-                    scope.assertNoException();
-                    sourceURL = sourceURLDescriptor.value().toWTFString(m_lexicalGlobalObject);
-                }
-                RETURN_IF_EXCEPTION(scope, false);
-
-                String stack;
-                PropertyDescriptor stackDescriptor;
-                if (errorInstance->getOwnPropertyDescriptor(m_lexicalGlobalObject, vm.propertyNames->stack, stackDescriptor) && stackDescriptor.isDataDescriptor()) {
-                    scope.assertNoException();
-                    stack = stackDescriptor.value().toWTFString(m_lexicalGlobalObject);
-                }
-                RETURN_IF_EXCEPTION(scope, false);
 
                 write(ErrorInstanceTag);
                 write(errorNameToSerializableErrorType(errorTypeString));
