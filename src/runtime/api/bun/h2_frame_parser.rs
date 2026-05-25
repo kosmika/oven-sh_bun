@@ -1058,6 +1058,12 @@ impl Handlers {
         self.global_object
     }
 
+    /// A zero/empty arg means a value failed to materialize (e.g. the VM is
+    /// terminating); skip the callback rather than passing it to JS.
+    fn should_skip_dispatch(&self, data: &[JSValue]) -> bool {
+        self.global().has_exception() || data.contains(&JSValue::ZERO)
+    }
+
     pub fn call_event_handler(
         &self,
         event: JSH2FrameParser::Gc,
@@ -1071,7 +1077,7 @@ impl Handlers {
         // A zero/empty arg means a value failed to materialize (e.g. the VM is
         // terminating); skip the callback rather than passing it to JS, which
         // asserts/crashes in Bun__JSValue__call.
-        if self.global().has_exception() || data.contains(&JSValue::ZERO) {
+        if self.should_skip_dispatch(data) {
             return false;
         }
         self.vm
@@ -1084,7 +1090,7 @@ impl Handlers {
         if !callback.is_callable() {
             return false;
         }
-        if self.global().has_exception() || data.contains(&JSValue::ZERO) {
+        if self.should_skip_dispatch(data) {
             return false;
         }
         self.vm
@@ -1102,7 +1108,7 @@ impl Handlers {
         let Some(callback) = event.get(this_value) else {
             return JSValue::ZERO;
         };
-        if self.global().has_exception() || data.contains(&JSValue::ZERO) {
+        if self.should_skip_dispatch(data) {
             return JSValue::ZERO;
         }
         self.vm.event_loop_ref().run_callback_with_result(
