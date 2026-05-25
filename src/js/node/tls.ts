@@ -659,12 +659,45 @@ function secureProtocolToVersionRange(secureProtocol) {
   return null;
 }
 
+/**
+ * Node's `pfx` option: parse each PKCS#12 blob into PEM key/cert/ca and fold
+ * them into the regular options so every downstream consumer (the native
+ * config, the multi-identity check, the CA store) sees plain key/cert/ca.
+ * Returns the original object untouched when no pfx is present.
+ */
+function processPfxOptions(options) {
+  if (options == null || options.pfx == null) return options;
+  const out = { ...options };
+  const keys = out.key == null ? [] : Array.isArray(out.key) ? [...out.key] : [out.key];
+  const certs = out.cert == null ? [] : Array.isArray(out.cert) ? [...out.cert] : [out.cert];
+  const cas = out.ca == null ? [] : Array.isArray(out.ca) ? [...out.ca] : [out.ca];
+  const entries = Array.isArray(out.pfx) ? out.pfx : [out.pfx];
+  for (const entry of entries) {
+    let buf = entry;
+    let passphrase = out.passphrase;
+    if (entry != null && typeof entry === "object" && !Buffer.isBuffer(entry) && !$isTypedArrayView(entry) && entry.buf !== undefined) {
+      buf = entry.buf;
+      if (entry.passphrase !== undefined) passphrase = entry.passphrase;
+    }
+    const parsed = NativeSecureContext.parsePkcs12(buf, passphrase);
+    keys.push(parsed.key);
+    certs.push(parsed.cert);
+    if (parsed.ca) cas.push(parsed.ca);
+  }
+  out.key = keys.length === 1 ? keys[0] : keys;
+  out.cert = certs.length === 1 ? certs[0] : certs;
+  if (cas.length) out.ca = cas.length === 1 ? cas[0] : cas;
+  out.pfx = undefined;
+  return out;
+}
+
 function newNativeSecureContext(options) {
   maybeWarnAboutExtraCACerts();
   if (options == null) {
     // tls.createSecureContext() with no options builds the default context.
     return NativeSecureContext.intern({});
   }
+  options = processPfxOptions(options);
   // ALPN protocols given as an array of strings are converted to the
   // length-prefixed wire format before crossing into native, the way Node's
   // convertALPNProtocols normalizes them on the socket options.
@@ -991,7 +1024,7 @@ TLSSocket.prototype.setKeyCert = function setKeyCert(context) {
   // from ALPNCallback/SNICallback before the certificate is sent). Accepts a
   // SecureContext or the same options object createSecureContext takes.
   const ctx = context?.context ? context : createSecureContext(context);
-  this._handle?.setKeyCert(ctx.context);
+  this._handle?.setKeyCert?.(ctx.context);
 };
 
 TLSSocket.prototype.exportKeyingMaterial = function exportKeyingMaterial(length, label, context) {
@@ -1184,6 +1217,7 @@ function Server(options, secureConnectionListener): void {
     }
     if (options) {
       validateSecureContextOptions(options);
+      options = processPfxOptions(options);
       const { ALPNProtocols } = options;
 
       if (ALPNProtocols) {

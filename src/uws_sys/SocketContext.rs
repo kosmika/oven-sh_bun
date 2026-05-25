@@ -318,6 +318,21 @@ pub mod c {
             ctx: *mut SSL_CTX,
             content: *const core::ffi::c_char,
         ) -> core::ffi::c_int;
+        /// Parses a PKCS#12 blob into malloc'd PEM key/cert/ca strings (the
+        /// caller frees them with libc free); returns 0 with a static
+        /// `err_reason` tag on failure.
+        pub fn us_ssl_parse_pkcs12(
+            data: *const core::ffi::c_char,
+            len: usize,
+            pass: *const core::ffi::c_char,
+            out_key: *mut *mut core::ffi::c_char,
+            out_key_len: *mut usize,
+            out_cert: *mut *mut core::ffi::c_char,
+            out_cert_len: *mut usize,
+            out_ca: *mut *mut core::ffi::c_char,
+            out_ca_len: *mut usize,
+            err_reason: *mut *const core::ffi::c_char,
+        ) -> core::ffi::c_int;
     }
 }
 

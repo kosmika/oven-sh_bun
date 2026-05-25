@@ -12,6 +12,9 @@ export default [
       // digest so identical configs return the same JS cell. Replaces the
       // old SHA-256/WeakRef cache that lived in `tls.ts`.
       intern: { fn: "intern", length: 1 },
+      // Parses a PKCS#12 (`pfx`) blob into { key, cert, ca } PEM strings so
+      // the regular key/cert/ca option plumbing can consume it.
+      parsePkcs12: { fn: "parse_pkcs12", length: 2 },
     },
     // No prototype surface — node:tls hands out the SecureContext object
     // itself as `.context`. We deliberately do NOT expose the underlying

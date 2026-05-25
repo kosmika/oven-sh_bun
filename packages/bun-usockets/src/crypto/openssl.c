@@ -34,6 +34,7 @@ void *sni_find(void *sni, const char *hostname);
 #include <openssl/dh.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <openssl/pkcs12.h>
 #elif LIBUS_USE_WOLFSSL
 #include <wolfssl/openssl/bio.h>
 #include <wolfssl/openssl/dh.h>
@@ -820,6 +821,100 @@ int us_ssl_ctx_add_ca_cert(SSL_CTX *ctx, const char *content) {
     return 0;
   }
   return add_ca_cert_to_ctx_store(ctx, content, store);
+}
+
+/* node:tls `pfx` support: parse a PKCS#12 blob and hand back PEM-encoded
+ * key / certificate / extra-chain strings the regular key/cert/ca options can
+ * consume. Returns 1 on success; the three out-strings are malloc'd and the
+ * caller frees them with free(). On failure returns 0 and sets *err_reason to
+ * a static tag: "parse" (not PKCS#12), "mac" (bad passphrase / corrupt),
+ * "key" (no private key), "cert" (no certificate). */
+static int pem_from_bio(BIO *bio, char **out, size_t *out_len) {
+  char *mem = NULL;
+  long n = BIO_get_mem_data(bio, &mem);
+  if (n <= 0 || !mem) return 0;
+  char *copy = (char *)malloc((size_t)n + 1);
+  if (!copy) return 0;
+  memcpy(copy, mem, (size_t)n);
+  copy[n] = 0;
+  *out = copy;
+  *out_len = (size_t)n;
+  return 1;
+}
+
+int us_ssl_parse_pkcs12(const char *data, size_t len, const char *pass,
+                        char **out_key, size_t *out_key_len,
+                        char **out_cert, size_t *out_cert_len,
+                        char **out_ca, size_t *out_ca_len,
+                        const char **err_reason) {
+  *out_key = *out_cert = *out_ca = NULL;
+  *out_key_len = *out_cert_len = *out_ca_len = 0;
+  *err_reason = NULL;
+  int ok = 0;
+  EVP_PKEY *pkey = NULL;
+  X509 *cert = NULL;
+  STACK_OF(X509) *extra = NULL;
+  PKCS12 *p12 = NULL;
+  BIO *kb = NULL, *cb = NULL, *ab = NULL;
+  BIO *in = BIO_new_mem_buf(data, (int)len);
+  if (!in) {
+    *err_reason = "parse";
+    return 0;
+  }
+  p12 = d2i_PKCS12_bio(in, NULL);
+  BIO_free(in);
+  if (!p12) {
+    *err_reason = "parse";
+    ERR_clear_error();
+    return 0;
+  }
+  if (!PKCS12_parse(p12, pass ? pass : "", &pkey, &cert, &extra)) {
+    *err_reason = "mac";
+    ERR_clear_error();
+    goto done;
+  }
+  if (!pkey) {
+    *err_reason = "key";
+    goto done;
+  }
+  if (!cert) {
+    *err_reason = "cert";
+    goto done;
+  }
+  kb = BIO_new(BIO_s_mem());
+  cb = BIO_new(BIO_s_mem());
+  if (!kb || !cb || !PEM_write_bio_PrivateKey(kb, pkey, NULL, NULL, 0, NULL, NULL) ||
+      !PEM_write_bio_X509(cb, cert) || !pem_from_bio(kb, out_key, out_key_len) ||
+      !pem_from_bio(cb, out_cert, out_cert_len)) {
+    *err_reason = "parse";
+    goto done;
+  }
+  if (extra && sk_X509_num(extra) > 0) {
+    ab = BIO_new(BIO_s_mem());
+    if (ab) {
+      for (size_t i = 0; i < sk_X509_num(extra); i++) {
+        PEM_write_bio_X509(ab, sk_X509_value(extra, i));
+      }
+      pem_from_bio(ab, out_ca, out_ca_len);
+    }
+  }
+  ok = 1;
+done:
+  if (!ok) {
+    free(*out_key);
+    free(*out_cert);
+    free(*out_ca);
+    *out_key = *out_cert = *out_ca = NULL;
+  }
+  if (kb) BIO_free(kb);
+  if (cb) BIO_free(cb);
+  if (ab) BIO_free(ab);
+  if (pkey) EVP_PKEY_free(pkey);
+  if (cert) X509_free(cert);
+  if (extra) sk_X509_pop_free(extra, X509_free);
+  if (p12) PKCS12_free(p12);
+  ERR_clear_error();
+  return ok;
 }
 
 SSL_CTX *us_ssl_ctx_from_options(struct us_bun_socket_context_options_t options,
