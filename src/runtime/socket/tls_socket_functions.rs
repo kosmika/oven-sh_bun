@@ -210,6 +210,14 @@ pub mod ffi {
         );
         // Returns the borrowed cert store of a live `SSL_CTX*`.
         pub safe fn SSL_CTX_get_cert_store(ctx: &SSL_CTX) -> *mut X509_STORE;
+        // Emptiness probe for a cert store: `get0_objects` borrows the
+        // object stack and `OPENSSL_sk_num(NULL)` returns 0.
+        pub fn X509_STORE_get0_objects(store: *mut X509_STORE) -> *mut c_void;
+        pub fn OPENSSL_sk_num(sk: *const c_void) -> usize;
+        // The process-wide default root store; up-refs before returning, so
+        // the caller owns a reference it must release with X509_STORE_free.
+        pub fn us_get_shared_default_ca_store() -> *mut X509_STORE;
+        pub fn X509_STORE_free(store: *mut X509_STORE);
         // X509_STORE_CTX lifecycle for issuer lookups; `new` allocates,
         // `init` borrows the store, `free` releases. Used to extend the peer
         // certificate chain through the local trust store.
@@ -508,9 +516,22 @@ pub fn get_peer_certificate(
     // terminal self-issued check has run.
     let mut last_is_self_issued = false;
     unsafe {
-        let store = ffi::SSL_CTX_get_cert_store(boringssl::SSL_CTX::opaque_ref(
+        let mut store = ffi::SSL_CTX_get_cert_store(boringssl::SSL_CTX::opaque_ref(
             ffi::SSL_get_SSL_CTX(boringssl::SSL::opaque_ref(ssl_ptr)),
         ));
+        // A context built without an explicit `ca` (and without requestCert,
+        // which installs the shared roots) carries an empty store and the
+        // issuer walk would stop at whatever the peer sent. Fall back to the
+        // process-wide default roots the way Node's per-context store always
+        // contains the bundled roots. The getter up-refs, so the temporary
+        // reference is released after the walk.
+        let mut shared_store: *mut boringssl::X509_STORE = core::ptr::null_mut();
+        if store.is_null() || ffi::OPENSSL_sk_num(ffi::X509_STORE_get0_objects(store)) == 0 {
+            shared_store = ffi::us_get_shared_default_ca_store();
+            if !shared_store.is_null() {
+                store = shared_store;
+            }
+        }
         let store_ctx = ffi::X509_STORE_CTX_new();
         if !store_ctx.is_null() {
             if !store.is_null()
@@ -553,6 +574,9 @@ pub fn get_peer_certificate(
                 }
             }
             ffi::X509_STORE_CTX_free(store_ctx);
+        }
+        if !shared_store.is_null() {
+            ffi::X509_STORE_free(shared_store);
         }
     }
 
