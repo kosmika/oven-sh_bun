@@ -562,6 +562,9 @@ pub fn get_peer_certificate(
                                 boringssl::X509_free(extra);
                             }
                             ffi::X509_STORE_CTX_free(store_ctx);
+                            if !shared_store.is_null() {
+                                ffi::X509_STORE_free(shared_store);
+                            }
                             return Err(e);
                         }
                     }
