@@ -780,7 +780,7 @@ static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_getHeapStatisticsBod
             auto* go = parentCtx.globalObject();
             JSObject* o = constructEmptyObject(go);
             auto set = [&](ASCIILiteral k, double v) { o->putDirect(pvm, Identifier::fromString(pvm, k), jsNumber(v)); };
-            double avail = capacity > heapSize ? capacity - heapSize : capacity;
+            double avail = capacity > heapSize ? capacity - heapSize : 0;
             set("total_heap_size"_s, heapSize);
             set("total_heap_size_executable"_s, heapSize / 2.0);
             set("total_physical_size"_s, capacity);
