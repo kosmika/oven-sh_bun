@@ -68,3 +68,10 @@ test/js/bun/spawn/spawn-maxbuf.test.ts [ FLAKY ]
 # The 10 MB socket write in this test is an order of magnitude slower under
 # AddressSanitizer and exceeds the per-test timeout; it passes on regular builds.
 [ ASAN ] test/js/node/test/parallel/test-net-error-twice.js [ SKIP ] # ASAN-instrumented 10 MB write exceeds the timeout
+
+# The localAddress/localPort bind-before-connect and the SO_ERROR read on a
+# connecting socket that was reset during establishment are implemented in the
+# POSIX (kqueue/epoll + BSD socket) connect path; Windows connects through
+# libuv and needs its own implementation of both.
+[ WINDOWS ] test/js/node/test/parallel/test-net-client-bind-twice.js [ FAIL ] # localAddress/localPort binding not implemented for the libuv connect path
+[ WINDOWS ] test/js/node/test/parallel/test-net-server-reset.js [ FAIL ] # connect-time RST reports ECONNREFUSED instead of ECONNRESET on the libuv path
