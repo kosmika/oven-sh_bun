@@ -547,6 +547,6 @@ it("setSession() should not leak the SSL_SESSION returned by d2i_SSL_SESSION", a
   // Leave generous headroom above the fixed-build measurement so unrelated
   // allocator changes don't turn this into a flaky test, while still being
   // far below the ~125 MB leak signature.
-  expect(growthBytes).toBeLessThan((isASAN ? 200 : 40) * 1024 * 1024);
+  expect(growthBytes).toBeLessThan((isASAN ? 60 : 40) * 1024 * 1024);
   expect(exitCode).toBe(0);
 }, 60_000);

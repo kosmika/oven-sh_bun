@@ -707,6 +707,10 @@ function onconnection(err, clientHandle) {
       self.emit("tlsClientError", err, _socket);
       if (!_socket.destroyed) _socket.destroy();
     }, self._handshakeTimeout);
+    // Node's handshake timer is unref'd: a fully-unref'd server (the
+    // graceful-shutdown pattern) must not be held open by a client that
+    // stalls mid-handshake.
+    timer.unref?.();
     _socket[khandshakeTimer] = timer;
     _socket.once("close", () => {
       if (_socket[khandshakeTimer]) {

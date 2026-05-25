@@ -4,7 +4,7 @@ let expectedCerts = [];
 if (EXPECTED_CERTS_PATH) {
   const fs = require('fs');
   const file = fs.readFileSync(EXPECTED_CERTS_PATH, 'utf-8');
-  const expectedCerts = file.split('-----END CERTIFICATE-----\n')
+  expectedCerts = file.split('-----END CERTIFICATE-----\n')
     .filter(line => line.trim() !== '')
     .map(line => line + '-----END CERTIFICATE-----\n');
 }

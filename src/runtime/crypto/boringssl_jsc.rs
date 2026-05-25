@@ -36,8 +36,7 @@ fn lib_short_name(lib: u32) -> &'static str {
         26 => "ECDSA_",
         27 => "ECDH_",
         28 => "HMAC_",
-        33 => "CMS_",
-        34 => "USER_",
+        33 => "USER_",
         _ => "",
     }
 }
