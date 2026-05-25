@@ -737,9 +737,11 @@ class Worker extends EventEmitter {
       if (prevValue.system < 0 || !Number.isFinite(prevValue.system))
         throw $ERR_OUT_OF_RANGE("prevValue.system", ">= 0 and a finite number", prevValue.system);
     }
-    return this.#worker.cpuUsageInternal().then((abs: { user: number; system: number }) =>
-      prevValue ? { user: abs.user - prevValue.user, system: abs.system - prevValue.system } : abs,
-    );
+    return this.#worker
+      .cpuUsageInternal()
+      .then((abs: { user: number; system: number }) =>
+        prevValue ? { user: abs.user - prevValue.user, system: abs.system - prevValue.system } : abs,
+      );
   }
 
   startHeapProfile(options?: object) {
