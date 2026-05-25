@@ -734,14 +734,10 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
     let { self, req } = socket.data;
     socket[owner_symbol] = self;
     $debug("self[kupgraded]", String(self[kupgraded]));
-    if (!self[kupgraded]) req!.oncomplete(0, self._handle, req, true, true);
-    socket.data.req = undefined;
-    if (self.pauseOnConnect) {
-      self.pause();
-    }
-    // Offer a previously-negotiated session for resumption. The native open
-    // dispatch runs before the ClientHello is sent, so this is the last point
-    // at which SSL_set_session can still influence the handshake.
+    // Offer a previously-negotiated session for resumption before oncomplete
+    // (afterConnect) runs: a user 'connect' listener that writes immediately
+    // would otherwise send the ClientHello before SSL_set_session runs and
+    // silently skip resumption.
     {
       const options = self[bunTLSConnectOptions];
       if (options) {
@@ -750,6 +746,11 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
           self.setSession(session);
         }
       }
+    }
+    if (!self[kupgraded]) req!.oncomplete(0, self._handle, req, true, true);
+    socket.data.req = undefined;
+    if (self.pauseOnConnect) {
+      self.pause();
     }
     if (self[kupgraded]) {
       self.connecting = false;

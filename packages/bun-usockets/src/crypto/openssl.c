@@ -1013,13 +1013,16 @@ static void ssl_trigger_handshake(struct us_socket_t *s, int success) {
     struct loop_ssl_data *loop_ssl_data =
         (struct loop_ssl_data *) s->group->loop->data.ssl_data;
     if (loop_ssl_data && loop_ssl_data->ssl_last_fatal_error[0]) {
-      struct us_bun_verify_error_t verify_error = {
-          .error = -71, .code = "EPROTO", .reason = loop_ssl_data->ssl_last_fatal_error};
-      us_dispatch_handshake(s, 0, verify_error);
-      /* The dispatch copies the string into a JS value synchronously; clear
-       * the scratch so a later unrelated failure on this loop cannot pick up
-       * a stale reason. */
+      /* Copy to the stack and clear the per-loop scratch BEFORE dispatching:
+       * the dispatch runs JS, and a listener that synchronously destroys a
+       * different mid-handshake socket on this loop would otherwise read this
+       * socket's reason as its own. */
+      char reason[sizeof(loop_ssl_data->ssl_last_fatal_error)];
+      memcpy(reason, loop_ssl_data->ssl_last_fatal_error, sizeof(reason));
       loop_ssl_data->ssl_last_fatal_error[0] = 0;
+      struct us_bun_verify_error_t verify_error = {
+          .error = -71, .code = "EPROTO", .reason = reason};
+      us_dispatch_handshake(s, 0, verify_error);
       return;
     }
   }
@@ -1036,10 +1039,12 @@ static void ssl_trigger_handshake_econnreset(struct us_socket_t *s) {
   struct loop_ssl_data *loop_ssl_data =
       (struct loop_ssl_data *) s->group->loop->data.ssl_data;
   if (loop_ssl_data && loop_ssl_data->ssl_last_fatal_error[0]) {
-    struct us_bun_verify_error_t verify_error = {
-        .error = -71, .code = "EPROTO", .reason = loop_ssl_data->ssl_last_fatal_error};
-    us_dispatch_handshake(s, 0, verify_error);
+    char reason[sizeof(loop_ssl_data->ssl_last_fatal_error)];
+    memcpy(reason, loop_ssl_data->ssl_last_fatal_error, sizeof(reason));
     loop_ssl_data->ssl_last_fatal_error[0] = 0;
+    struct us_bun_verify_error_t verify_error = {
+        .error = -71, .code = "EPROTO", .reason = reason};
+    us_dispatch_handshake(s, 0, verify_error);
     return;
   }
   struct us_bun_verify_error_t verify_error = {
