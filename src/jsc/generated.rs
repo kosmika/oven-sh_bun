@@ -199,6 +199,7 @@ pub struct SocketConfigHandlers {
     pub on_handshake: JSValue,
     pub on_session: JSValue,
     pub on_keylog: JSValue,
+    pub on_server_name: JSValue,
     pub binary_type: SocketConfigHandlersBinaryType,
 }
 
@@ -216,6 +217,7 @@ struct ExternSocketConfigHandlers {
     onTimeout: JSValue,
     onSession: JSValue,
     onKeylog: JSValue,
+    onServerName: JSValue,
     binary_type: SocketConfigHandlersBinaryType,
 }
 
@@ -245,6 +247,7 @@ impl SocketConfigHandlers {
             on_timeout: ext.onTimeout,
             on_session: ext.onSession,
             on_keylog: ext.onKeylog,
+            on_server_name: ext.onServerName,
             binary_type: ext.binary_type,
         }
     }

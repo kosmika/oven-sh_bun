@@ -25,6 +25,7 @@ export const Handlers = b.dictionary(
     timeout: { type: b.RawAny, internalName: "onTimeout" },
     session: { type: b.RawAny, internalName: "onSession" },
     keylog: { type: b.RawAny, internalName: "onKeylog" },
+    serverName: { type: b.RawAny, internalName: "onServerName" },
     binaryType: {
       type: BinaryType,
       default: "buffer",

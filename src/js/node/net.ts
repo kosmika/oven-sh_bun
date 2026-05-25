@@ -465,6 +465,24 @@ const ServerHandlers: SocketHandler<NetSocket> = {
     if (tlsKeylogPath !== undefined) appendTlsKeylog(line);
     self.server?.emit?.("keylog", line, self);
   },
+  serverName(server, servername) {
+    // The native SNI resolver re-checks its hostname map synchronously after
+    // this returns, so only a context registered by a synchronous SNICallback
+    // takes effect for the in-flight handshake; an asynchronous callback falls
+    // through to the default context. The native dispatch passes the
+    // listener's `data` (the owning tls.Server) directly.
+    const cb = server?._SNICallback;
+    if (typeof cb !== "function" || !servername) return;
+    cb.$call(server, servername, (err, context) => {
+      // Node assigns `sni_context = context.context || context` and its
+      // native side ignores anything that is not a real SecureContext, so a
+      // bare `{}` (or undefined) falls through to the default context rather
+      // than registering an empty cert-less one.
+      if (!err && context && typeof context === "object" && context.context) {
+        server.addContext(servername, context);
+      }
+    });
+  },
   close(socket, err) {
     $debug("Bun.Server close");
     const data = this.data;

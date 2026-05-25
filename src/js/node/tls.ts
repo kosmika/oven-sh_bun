@@ -273,12 +273,9 @@ function validateCiphers(ciphers: string, name: string = "options") {
         // @SECLEVEL with INVALID_COMMAND. Report that the way the native
         // parser would, with Node's decomposed error shape.
         if (r.startsWith("@SECLEVEL") || r.includes("@SECLEVEL")) {
-          const err = new Error("error:0f000076:SSL routines:OPENSSL_internal:INVALID_COMMAND") as Error & {
-            code: string;
-            library: string;
-            function: string;
-            reason: string;
-          };
+          const err = new Error(
+            "error:0f000076:SSL routines:OPENSSL_internal:INVALID_COMMAND",
+          ) as Error & { code: string; library: string; function: string; reason: string };
           err.code = "ERR_SSL_INVALID_COMMAND";
           err.library = "SSL routines";
           err.function = "OPENSSL_internal";
@@ -1129,6 +1126,7 @@ function Server(options, secureConnectionListener): void {
     const sniCallback = options.SNICallback;
     if (sniCallback != null) {
       validateFunction(sniCallback, "options.SNICallback");
+      this._SNICallback = sniCallback;
     }
   }
 
@@ -1188,10 +1186,11 @@ function Server(options, secureConnectionListener): void {
       }
 
       // BoringSSL rejects a mixed EC/RSA multi-identity configuration while
-      // loading the chain: every private key must match the type of the last
-      // certificate loaded. The native context is built lazily at listen
-      // time, so reproduce that check synchronously here the way Node's
-      // createSecureContext surfaces it.
+      // loading the chain. The native context is built lazily at listen time,
+      // so surface the most common mismatch synchronously here: a key whose
+      // type differs from its own index-paired certificate. This is a
+      // best-effort check - the native loader at listen time remains the
+      // authority and still rejects configurations that pass it.
       if (Array.isArray(key) && key.length > 1 && cert) {
         const certs = Array.isArray(cert) ? cert : [cert];
         try {
