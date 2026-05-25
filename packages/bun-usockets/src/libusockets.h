@@ -354,6 +354,7 @@ void us_listen_socket_remove_server_name(struct us_listen_socket_t *ls,
     const char *hostname_pattern) nonnull_fn_decl;
 void *us_listen_socket_find_server_name_userdata(struct us_listen_socket_t *ls,
     const char *hostname_pattern) nonnull_fn_decl;
+/* Returns an owned reference; the caller must release it. */
 struct ssl_ctx_st *us_listen_socket_find_server_name_ctx(struct us_listen_socket_t *ls,
     const char *hostname_pattern) nonnull_fn_decl;
 void us_listen_socket_on_server_name(struct us_listen_socket_t *ls,
