@@ -675,7 +675,13 @@ function processPfxOptions(options) {
   for (const entry of entries) {
     let buf = entry;
     let passphrase = out.passphrase;
-    if (entry != null && typeof entry === "object" && !Buffer.isBuffer(entry) && !$isTypedArrayView(entry) && entry.buf !== undefined) {
+    if (
+      entry != null &&
+      typeof entry === "object" &&
+      !Buffer.isBuffer(entry) &&
+      !$isTypedArrayView(entry) &&
+      entry.buf !== undefined
+    ) {
       buf = entry.buf;
       if (entry.passphrase !== undefined) passphrase = entry.passphrase;
     }
