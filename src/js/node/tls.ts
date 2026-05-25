@@ -273,12 +273,9 @@ function validateCiphers(ciphers: string, name: string = "options") {
         // @SECLEVEL with INVALID_COMMAND. Report that the way the native
         // parser would, with Node's decomposed error shape.
         if (r.startsWith("@SECLEVEL") || r.includes(":@SECLEVEL")) {
-          const err = new Error("error:0f000076:SSL routines:OPENSSL_internal:INVALID_COMMAND") as Error & {
-            code: string;
-            library: string;
-            function: string;
-            reason: string;
-          };
+          const err = new Error(
+            "error:0f000076:SSL routines:OPENSSL_internal:INVALID_COMMAND",
+          ) as Error & { code: string; library: string; function: string; reason: string };
           err.code = "ERR_SSL_INVALID_COMMAND";
           err.library = "SSL routines";
           err.function = "OPENSSL_internal";
@@ -1185,6 +1182,36 @@ function Server(options, secureConnectionListener): void {
       if (key) {
         throwOnInvalidTLSArray("options.key", key);
         this.key = key;
+      }
+
+      // BoringSSL rejects a mixed EC/RSA multi-identity configuration while
+      // loading the chain: every private key must match the type of the last
+      // certificate loaded. The native context is built lazily at listen
+      // time, so reproduce that check synchronously here the way Node's
+      // createSecureContext surfaces it.
+      if (Array.isArray(key) && key.length > 1 && cert) {
+        const lastCert = Array.isArray(cert) ? cert[cert.length - 1] : cert;
+        try {
+          const { createPrivateKey, X509Certificate } = require("node:crypto");
+          const certType = new X509Certificate(lastCert).publicKey.asymmetricKeyType;
+          for (const k of key) {
+            if (typeof k !== "string" && !$isTypedArrayView(k)) continue;
+            if (createPrivateKey(k).asymmetricKeyType !== certType) {
+              const err = new Error(
+                "error:0b000074:X.509 certificate routines:OPENSSL_internal:KEY_TYPE_MISMATCH",
+              ) as Error & { code: string; library: string; function: string; reason: string };
+              err.code = "ERR_OSSL_X509_KEY_TYPE_MISMATCH";
+              err.library = "X.509 certificate routines";
+              err.function = "OPENSSL_internal";
+              err.reason = "KEY_TYPE_MISMATCH";
+              throw err;
+            }
+          }
+        } catch (e: any) {
+          if (e?.code === "ERR_OSSL_X509_KEY_TYPE_MISMATCH") throw e;
+          // An unparseable key or certificate falls through to the native
+          // load, which produces its own error.
+        }
       }
 
       let ca = options.ca;
