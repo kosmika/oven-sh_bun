@@ -1130,7 +1130,9 @@ impl WebWorker {
                     true,
                 );
                 if !handled {
-                    vm.as_mut().exit_handler.exit_code = 1;
+                    // exit_code is already 1 from uncaught_exception on the
+                    // !handled path; don't re-set it here or we clobber a
+                    // process.on('exit') handler that changed process.exitCode.
                     return self.shutdown();
                 }
             } else if status == jsc::js_promise::Status::Pending {
