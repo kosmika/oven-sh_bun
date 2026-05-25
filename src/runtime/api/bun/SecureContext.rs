@@ -190,15 +190,23 @@ impl SecureContext {
     /// the given PEM string or buffer to this context's trust store, the way
     /// Node's SecureContext exposes it.
     #[bun_jsc::host_fn(method)]
-    pub fn add_ca_cert(this: &Self, global: &JSGlobalObject, frame: &CallFrame) -> JsResult<JSValue> {
+    pub fn add_ca_cert(
+        this: &Self,
+        global: &JSGlobalObject,
+        frame: &CallFrame,
+    ) -> JsResult<JSValue> {
         let args = frame.arguments();
         if args.is_empty() {
-            return Err(global.throw_invalid_arguments(format_args!("addCACert requires a certificate")));
+            return Err(
+                global.throw_invalid_arguments(format_args!("addCACert requires a certificate"))
+            );
         }
         let pem = args[0].to_slice(global)?;
         let bytes = pem.slice();
         if bytes.is_empty() {
-            return Err(global.throw_invalid_arguments(format_args!("addCACert requires a certificate")));
+            return Err(
+                global.throw_invalid_arguments(format_args!("addCACert requires a certificate"))
+            );
         }
         // The C side wants a NUL-terminated PEM document.
         let mut owned = bytes.to_vec();
