@@ -1579,7 +1579,13 @@ static int sni_cb(SSL *ssl, int *al, void *arg) {
        * tree. The callback runs JS and may close this listener; nothing
        * below touches ls after it returns. */
       SSL_CTX *dyn = ls->on_server_name(ls, hostname);
-      if (dyn) SSL_set_SSL_CTX(ssl, dyn);
+      if (dyn) {
+        SSL_set_SSL_CTX(ssl, dyn);
+        /* The resolver hands back an owned reference and SSL_set_SSL_CTX
+         * takes its own; release the temporary or every dynamic resolution
+         * leaks one reference to the selected context. */
+        SSL_CTX_free(dyn);
+      }
     }
   }
   return SSL_TLSEXT_ERR_OK;

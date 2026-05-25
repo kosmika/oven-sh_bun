@@ -68,7 +68,9 @@ function appendTlsKeylog(line: Buffer) {
     );
   }
   try {
-    require("node:fs").appendFileSync(tlsKeylogPath, line);
+    // The keylog contains TLS master secrets; create it owner-readable only.
+    // The mode is only applied when the file is created.
+    require("node:fs").appendFileSync(tlsKeylogPath, line, { mode: 0o600 });
   } catch {
     // Node ignores keylog write failures.
   }
