@@ -21,7 +21,11 @@
 #include "config.h"
 #include "JSWorker.h"
 #include "BunCPUProfiler.h"
+#if OS(WINDOWS)
+#include <uv.h>
+#else
 #include <sys/resource.h>
+#endif
 
 #include "ActiveDOMObject.h"
 #include "EventNames.h"
@@ -870,6 +874,15 @@ static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_cpuUsageInternalBody
     auto* promiseHandle = new Strong<JSPromise>(vm, promise);
     auto parentId = globalObject->scriptExecutionContext()->identifier();
     bool accepted = worker.postTaskToWorkerGlobalScope([promiseHandle, parentId](ScriptExecutionContext&) {
+        double user = 0;
+        double sys = 0;
+#if OS(WINDOWS)
+        uv_rusage_t ru;
+        if (uv_getrusage(&ru) == 0) {
+            user = static_cast<double>(ru.ru_utime.tv_sec) * 1e6 + static_cast<double>(ru.ru_utime.tv_usec);
+            sys = static_cast<double>(ru.ru_stime.tv_sec) * 1e6 + static_cast<double>(ru.ru_stime.tv_usec);
+        }
+#else
         struct rusage ru;
         memset(&ru, 0, sizeof(ru));
 #if defined(RUSAGE_THREAD)
@@ -877,8 +890,9 @@ static inline JSC::EncodedJSValue jsWorkerPrototypeFunction_cpuUsageInternalBody
 #else
         getrusage(RUSAGE_SELF, &ru);
 #endif
-        double user = static_cast<double>(ru.ru_utime.tv_sec) * 1e6 + static_cast<double>(ru.ru_utime.tv_usec);
-        double sys = static_cast<double>(ru.ru_stime.tv_sec) * 1e6 + static_cast<double>(ru.ru_stime.tv_usec);
+        user = static_cast<double>(ru.ru_utime.tv_sec) * 1e6 + static_cast<double>(ru.ru_utime.tv_usec);
+        sys = static_cast<double>(ru.ru_stime.tv_sec) * 1e6 + static_cast<double>(ru.ru_stime.tv_usec);
+#endif
         ScriptExecutionContext::postTaskTo(parentId, [promiseHandle, user, sys](ScriptExecutionContext& parentCtx) {
             std::unique_ptr<Strong<JSPromise>> handle(promiseHandle);
             auto& pvm = parentCtx.vm();
