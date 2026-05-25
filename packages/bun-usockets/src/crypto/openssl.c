@@ -1140,30 +1140,35 @@ struct us_bun_verify_error_t us_internal_ssl_verify_error(struct us_socket_t *s)
 /* The on_handshake callback runs JS which may us_socket_close(s) — that frees
  * s->ssl. Every caller MUST check ssl_gone(s) immediately after this returns
  * and bail before touching s->ssl again. */
+/* If a fatal handshake reason was parked by `s`, dispatch it as the EPROTO
+ * failure for `s` and return 1; the per-loop scratch is copied to the stack
+ * and cleared before the dispatch runs JS. Returns 0 when nothing was parked
+ * for this socket. */
+static int ssl_dispatch_parked_reason(struct us_socket_t *s) {
+  struct loop_ssl_data *loop_ssl_data =
+      (struct loop_ssl_data *) s->group->loop->data.ssl_data;
+  if (!loop_ssl_data || !loop_ssl_data->ssl_last_fatal_error[0] ||
+      loop_ssl_data->ssl_last_fatal_error_owner != (void *)s) {
+    return 0;
+  }
+  char reason[sizeof(loop_ssl_data->ssl_last_fatal_error)];
+  memcpy(reason, loop_ssl_data->ssl_last_fatal_error, sizeof(reason));
+  loop_ssl_data->ssl_last_fatal_error[0] = 0;
+  loop_ssl_data->ssl_last_fatal_error_owner = NULL;
+  struct us_bun_verify_error_t verify_error = {
+      .error = -71, .code = "EPROTO", .reason = reason};
+  us_dispatch_handshake(s, 0, verify_error);
+  return 1;
+}
+
 static void ssl_trigger_handshake(struct us_socket_t *s, int success) {
   s->ssl_handshake_state = HANDSHAKE_COMPLETED;
   /* A fatal SSL protocol error (wrong version number, bad record, ...) was
    * recorded just before this failure: report it instead of the X509 verify
    * result so Node's tlsClientError / client error carries the OpenSSL
    * reason string. */
-  if (!success) {
-    struct loop_ssl_data *loop_ssl_data =
-        (struct loop_ssl_data *) s->group->loop->data.ssl_data;
-    if (loop_ssl_data && loop_ssl_data->ssl_last_fatal_error[0] &&
-        loop_ssl_data->ssl_last_fatal_error_owner == (void *)s) {
-      /* Copy to the stack and clear the per-loop scratch BEFORE dispatching:
-       * the dispatch runs JS, and a listener that synchronously destroys a
-       * different mid-handshake socket on this loop would otherwise read this
-       * socket's reason as its own. */
-      char reason[sizeof(loop_ssl_data->ssl_last_fatal_error)];
-      memcpy(reason, loop_ssl_data->ssl_last_fatal_error, sizeof(reason));
-      loop_ssl_data->ssl_last_fatal_error[0] = 0;
-      loop_ssl_data->ssl_last_fatal_error_owner = NULL;
-      struct us_bun_verify_error_t verify_error = {
-          .error = -71, .code = "EPROTO", .reason = reason};
-      us_dispatch_handshake(s, 0, verify_error);
-      return;
-    }
+  if (!success && ssl_dispatch_parked_reason(s)) {
+    return;
   }
   struct us_bun_verify_error_t verify_error = us_internal_ssl_verify_error(s);
   us_dispatch_handshake(s, success, verify_error);
@@ -1175,17 +1180,7 @@ static void ssl_trigger_handshake_econnreset(struct us_socket_t *s) {
    * recorded just before this close: report it instead of the generic
    * disconnected-before-established message so Node's tlsClientError /
    * client error carries the OpenSSL reason. */
-  struct loop_ssl_data *loop_ssl_data =
-      (struct loop_ssl_data *) s->group->loop->data.ssl_data;
-  if (loop_ssl_data && loop_ssl_data->ssl_last_fatal_error[0] &&
-      loop_ssl_data->ssl_last_fatal_error_owner == (void *)s) {
-    char reason[sizeof(loop_ssl_data->ssl_last_fatal_error)];
-    memcpy(reason, loop_ssl_data->ssl_last_fatal_error, sizeof(reason));
-    loop_ssl_data->ssl_last_fatal_error[0] = 0;
-    loop_ssl_data->ssl_last_fatal_error_owner = NULL;
-    struct us_bun_verify_error_t verify_error = {
-        .error = -71, .code = "EPROTO", .reason = reason};
-    us_dispatch_handshake(s, 0, verify_error);
+  if (ssl_dispatch_parked_reason(s)) {
     return;
   }
   struct us_bun_verify_error_t verify_error = {

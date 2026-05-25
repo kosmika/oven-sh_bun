@@ -8,8 +8,8 @@ use core::ptr::{self, NonNull};
 
 use bun_io::KeepAlive;
 use bun_jsc::JsCell;
-use bun_jsc::ZigStringJsc as _;
 use bun_jsc::zig_string::ZigString;
+use bun_jsc::ZigStringJsc as _;
 use bun_ptr::IntrusiveRc;
 // PORT NOTE: do NOT `use bun_boringssl_sys::SSL` here — it shadows the
 // `const SSL: bool` generic param in `NewSocket<SSL>` below, making rustc
@@ -123,7 +123,8 @@ extern "C" fn select_alpn_callback(
                 // and `in_` is valid for `inlen` per the callback contract.
                 unsafe { core::ptr::copy_nonoverlapping(in_, ab.ptr, wire_len) };
             }
-            let servername_ptr = unsafe { boringssl_sys::SSL_get_servername(ssl.cast_const(), 0) };
+            let servername_ptr =
+                unsafe { boringssl_sys::SSL_get_servername(ssl.cast_const(), 0) };
             let servername_js = if servername_ptr.is_null() {
                 JSValue::UNDEFINED
             } else {
@@ -131,11 +132,10 @@ extern "C" fn select_alpn_callback(
                 let name = unsafe { core::ffi::CStr::from_ptr(servername_ptr) };
                 ZigString::init(name.to_bytes()).to_js(&global)
             };
-            let result =
-                match callback.call(&global, this_value, &[this_value, servername_js, buffer]) {
-                    Ok(v) => v,
-                    Err(err) => global.take_exception(err),
-                };
+            let result = match callback.call(&global, this_value, &[this_value, servername_js, buffer]) {
+                Ok(v) => v,
+                Err(err) => global.take_exception(err),
+            };
             if let Some(err_value) = result.to_error() {
                 let _ = handlers.call_error_handler(this_value, &[this_value, err_value]);
                 if scope.exit() {
@@ -1228,12 +1228,18 @@ impl<const SSL: bool> NewSocket<SSL> {
                             }
                         }
                     }
-                    let has_dynamic_alpn =
-                        this.is_server() && !this.get_handlers().on_alpn_callback.is_empty();
-                    if this.protos.get().is_none() && has_dynamic_alpn {
-                        // A server configured with only an ALPNCallback (no
-                        // static ALPNProtocols) still needs the per-connection
-                        // selector registered, or the callback never runs.
+                    // A server needs the per-connection ALPN selector when it
+                    // has static ALPNProtocols OR a dynamic ALPNCallback (the
+                    // selector consults the callback first and falls back to
+                    // the static list). The callback reads `this` from the SSL,
+                    // not the CTX-level arg (shared across the listener).
+                    // ffi-safe-fn: opaque-ZST `&SSL`/`&SSL_CTX` redecls;
+                    // `ssl_ptr` non-null in this branch and `SSL_get_SSL_CTX`
+                    // never returns null for a live SSL.
+                    if this.is_server()
+                        && (this.protos.get().is_some()
+                            || !this.get_handlers().on_alpn_callback.is_empty())
+                    {
                         let ssl_ref = boringssl_sys::SSL::opaque_ref(ssl_ptr);
                         tls_socket_functions::ffi::SSL_set_ex_data(
                             ssl_ref,
@@ -1250,24 +1256,8 @@ impl<const SSL: bool> NewSocket<SSL> {
                     }
                     if let Some(protos) = this.protos.get() {
                         if this.is_server() {
-                            // Per-connection: callback reads `this` from the SSL,
-                            // not the CTX-level arg (shared across the listener).
-                            // ffi-safe-fn: opaque-ZST `&SSL`/`&SSL_CTX` redecls;
-                            // `ssl_ptr` non-null in this branch and
-                            // `SSL_get_SSL_CTX` never returns null for a live SSL.
-                            let ssl_ref = boringssl_sys::SSL::opaque_ref(ssl_ptr);
-                            tls_socket_functions::ffi::SSL_set_ex_data(
-                                ssl_ref,
-                                0,
-                                this_ptr.cast::<c_void>(),
-                            );
-                            tls_socket_functions::ffi::SSL_CTX_set_alpn_select_cb(
-                                SSL_CTX::opaque_ref(tls_socket_functions::ffi::SSL_get_SSL_CTX(
-                                    ssl_ref,
-                                )),
-                                Some(select_alpn_callback),
-                                ptr::null_mut(),
-                            );
+                            // Registered above (selector + ex_data); nothing
+                            // further to do for the static server list here.
                         } else {
                             // SAFETY: `ssl_ptr` non-null in this branch;
                             // `protos.as_ptr()` is readable for `protos.len()`

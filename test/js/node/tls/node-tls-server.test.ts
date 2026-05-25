@@ -723,6 +723,7 @@ it("connectionListener should emit the right amount of times, and with alpnProto
   expect(count).toBe(50);
 });
 
+
 it("destroying the socket from inside SNICallback or ALPNCallback does not crash the process", async () => {
   // Both callbacks run synchronously from inside the native handshake; a
   // destroy() there must defer the SSL teardown until the handshake call
