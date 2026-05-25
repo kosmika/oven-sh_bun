@@ -738,6 +738,12 @@ function TLSSocket(socket?, options?) {
   }
 
   this.ciphers = options.ciphers;
+  // A prebuilt secure context wins over the raw key/cert/ca options - the
+  // [buntls] config hands its already-built SSL_CTX to the native connect
+  // instead of rebuilding one.
+  if (options.secureContext) {
+    this[ksecureContext] = options.secureContext;
+  }
   if (this.ciphers) {
     validateCiphers(options.ciphers);
   }
