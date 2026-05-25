@@ -75,6 +75,10 @@ struct loop_ssl_data {
    * ssl_close, cleared after use). Lets 'wrong version number' and friends
    * reach the JS 'tlsClientError' / client error the way Node reports them. */
   char ssl_last_fatal_error[256];
+  /* The socket that parked ssl_last_fatal_error. The scratch is per-loop, so
+   * a reason parked by one socket must never be reported for another (a
+   * server and a client in the same process share this loop). */
+  void *ssl_last_fatal_error_owner;
 };
 
 enum {
@@ -654,30 +658,51 @@ SSL_CTX *us_ssl_ctx_build_raw(struct us_bun_socket_context_options_t options,
     SSL_CTX_set_default_passwd_cb(ssl_context, passphrase_cb);
   }
 
-  if (options.cert_file_name) {
-    if (SSL_CTX_use_certificate_chain_file(ssl_context, options.cert_file_name) != 1) {
-      ssl_ctx_build_fail(ssl_context);
-      return NULL;
-    }
-  } else if (options.cert && options.cert_count > 0) {
+  /* Multiple identities (e.g. an RSA and an EC pair, the way Node accepts
+   * arrays of key/cert or several pfx entries) must be loaded pair-wise:
+   * loading every certificate first and then every key makes BoringSSL check
+   * each key against the last certificate loaded and fail with
+   * KEY_TYPE_MISMATCH on a mixed configuration. With pair-wise loading the
+   * later identity replaces the earlier one in the legacy slot, which is the
+   * documented BoringSSL behaviour the adapted tests expect. */
+  int interleave_identities = !options.cert_file_name && !options.key_file_name &&
+                              options.cert && options.key &&
+                              options.cert_count == options.key_count &&
+                              options.cert_count > 1;
+  if (interleave_identities) {
     for (unsigned int i = 0; i < options.cert_count; i++) {
-      if (us_ssl_ctx_use_certificate_chain(ssl_context, options.cert[i]) != 1) {
+      if (us_ssl_ctx_use_certificate_chain(ssl_context, options.cert[i]) != 1 ||
+          us_ssl_ctx_use_privatekey_content(ssl_context, options.key[i], SSL_FILETYPE_PEM) != 1) {
         ssl_ctx_build_fail(ssl_context);
         return NULL;
       }
     }
-  }
-
-  if (options.key_file_name) {
-    if (SSL_CTX_use_PrivateKey_file(ssl_context, options.key_file_name, SSL_FILETYPE_PEM) != 1) {
-      ssl_ctx_build_fail(ssl_context);
-      return NULL;
-    }
-  } else if (options.key && options.key_count > 0) {
-    for (unsigned int i = 0; i < options.key_count; i++) {
-      if (us_ssl_ctx_use_privatekey_content(ssl_context, options.key[i], SSL_FILETYPE_PEM) != 1) {
+  } else {
+    if (options.cert_file_name) {
+      if (SSL_CTX_use_certificate_chain_file(ssl_context, options.cert_file_name) != 1) {
         ssl_ctx_build_fail(ssl_context);
         return NULL;
+      }
+    } else if (options.cert && options.cert_count > 0) {
+      for (unsigned int i = 0; i < options.cert_count; i++) {
+        if (us_ssl_ctx_use_certificate_chain(ssl_context, options.cert[i]) != 1) {
+          ssl_ctx_build_fail(ssl_context);
+          return NULL;
+        }
+      }
+    }
+
+    if (options.key_file_name) {
+      if (SSL_CTX_use_PrivateKey_file(ssl_context, options.key_file_name, SSL_FILETYPE_PEM) != 1) {
+        ssl_ctx_build_fail(ssl_context);
+        return NULL;
+      }
+    } else if (options.key && options.key_count > 0) {
+      for (unsigned int i = 0; i < options.key_count; i++) {
+        if (us_ssl_ctx_use_privatekey_content(ssl_context, options.key[i], SSL_FILETYPE_PEM) != 1) {
+          ssl_ctx_build_fail(ssl_context);
+          return NULL;
+        }
       }
     }
   }
@@ -1114,7 +1139,8 @@ static void ssl_trigger_handshake(struct us_socket_t *s, int success) {
   if (!success) {
     struct loop_ssl_data *loop_ssl_data =
         (struct loop_ssl_data *) s->group->loop->data.ssl_data;
-    if (loop_ssl_data && loop_ssl_data->ssl_last_fatal_error[0]) {
+    if (loop_ssl_data && loop_ssl_data->ssl_last_fatal_error[0] &&
+        loop_ssl_data->ssl_last_fatal_error_owner == (void *)s) {
       /* Copy to the stack and clear the per-loop scratch BEFORE dispatching:
        * the dispatch runs JS, and a listener that synchronously destroys a
        * different mid-handshake socket on this loop would otherwise read this
@@ -1122,6 +1148,7 @@ static void ssl_trigger_handshake(struct us_socket_t *s, int success) {
       char reason[sizeof(loop_ssl_data->ssl_last_fatal_error)];
       memcpy(reason, loop_ssl_data->ssl_last_fatal_error, sizeof(reason));
       loop_ssl_data->ssl_last_fatal_error[0] = 0;
+      loop_ssl_data->ssl_last_fatal_error_owner = NULL;
       struct us_bun_verify_error_t verify_error = {
           .error = -71, .code = "EPROTO", .reason = reason};
       us_dispatch_handshake(s, 0, verify_error);
@@ -1140,10 +1167,12 @@ static void ssl_trigger_handshake_econnreset(struct us_socket_t *s) {
    * client error carries the OpenSSL reason. */
   struct loop_ssl_data *loop_ssl_data =
       (struct loop_ssl_data *) s->group->loop->data.ssl_data;
-  if (loop_ssl_data && loop_ssl_data->ssl_last_fatal_error[0]) {
+  if (loop_ssl_data && loop_ssl_data->ssl_last_fatal_error[0] &&
+      loop_ssl_data->ssl_last_fatal_error_owner == (void *)s) {
     char reason[sizeof(loop_ssl_data->ssl_last_fatal_error)];
     memcpy(reason, loop_ssl_data->ssl_last_fatal_error, sizeof(reason));
     loop_ssl_data->ssl_last_fatal_error[0] = 0;
+    loop_ssl_data->ssl_last_fatal_error_owner = NULL;
     struct us_bun_verify_error_t verify_error = {
         .error = -71, .code = "EPROTO", .reason = reason};
     us_dispatch_handshake(s, 0, verify_error);
@@ -1251,6 +1280,11 @@ struct us_socket_t *us_internal_ssl_close(struct us_socket_t *s, int code, void 
 #define ssl_close us_internal_ssl_close
 
 static void ssl_update_handshake(struct us_socket_t *s) {
+  /* The OpenSSL error queue is per-thread and another socket's failure (a
+   * server and a client commonly share this thread) may have left entries on
+   * it; clear it before this socket's handshake step so any reason captured
+   * below genuinely belongs to this socket's own failure. */
+  ERR_clear_error();
     if (!s->ssl || s->ssl_handshake_state != HANDSHAKE_PENDING) return;
 
   /* SSL_read may have driven the handshake to completion before we got here
@@ -1284,9 +1318,10 @@ static void ssl_update_handshake(struct us_socket_t *s) {
         struct loop_ssl_data *loop_ssl_data =
             (struct loop_ssl_data *) s->group->loop->data.ssl_data;
         unsigned long ssl_queue_err = ERR_peek_last_error();
-        if (loop_ssl_data && ssl_queue_err != 0 && !loop_ssl_data->ssl_last_fatal_error[0]) {
+        if (loop_ssl_data && ssl_queue_err != 0) {
           ERR_error_string_n(ssl_queue_err, loop_ssl_data->ssl_last_fatal_error,
                              sizeof(loop_ssl_data->ssl_last_fatal_error));
+          loop_ssl_data->ssl_last_fatal_error_owner = s;
         }
         ERR_clear_error();
         s->ssl_fatal_error = 1;
@@ -1353,6 +1388,10 @@ struct us_socket_t *us_internal_ssl_on_writable(struct us_socket_t *s) {
 }
 
 struct us_socket_t *us_internal_ssl_on_data(struct us_socket_t *s, char *data, int length) {
+  /* See ssl_update_handshake: start this socket's SSL processing with a clean
+   * per-thread error queue so a captured reason cannot belong to another
+   * socket on the same thread. */
+  ERR_clear_error();
   /* An accepted node:tls socket's kind is only assigned after its SSL was
    * attached, so the is-a-bun-socket marker the session/keylog callbacks key
    * on may still be missing. Set it lazily before the SSL_read that will
@@ -1432,9 +1471,10 @@ restart:
            * socket's reason as its own. */
           if (s->ssl_handshake_state != HANDSHAKE_COMPLETED) {
             unsigned long ssl_queue_err = ERR_peek_last_error();
-            if (ssl_queue_err != 0 && !loop_ssl_data->ssl_last_fatal_error[0]) {
+            if (ssl_queue_err != 0) {
               ERR_error_string_n(ssl_queue_err, loop_ssl_data->ssl_last_fatal_error,
                                  sizeof(loop_ssl_data->ssl_last_fatal_error));
+              loop_ssl_data->ssl_last_fatal_error_owner = s;
             }
           }
           ERR_clear_error();
