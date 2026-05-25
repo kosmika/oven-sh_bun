@@ -938,6 +938,13 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
   },
 };
 
+// The same table minus the `serverName` member: a listener whose config has
+// no `serverName` handler never registers the native SNI dispatch, so a
+// server without an `SNICallback` does not pay a JS round-trip from inside
+// the handshake for every client whose SNI does not match a registered name.
+const { serverName: _serverNameHandler, ...ServerHandlersNoSNI } = ServerHandlers;
+
+
 function kConnectTcp(self, addressType, req, address, port) {
   $debug("SocketHandle.kConnectTcp", addressType, address, port);
   const promise = doConnect(self._handle, {
@@ -1589,7 +1596,7 @@ Socket.prototype[Symbol.for("::bunUpgradeServerTLS::")] = function (connection, 
     const [result, events] = upgradeDuplexToTLS(connection, {
       data: this,
       tls,
-      socket: ServerHandlers,
+      socket: this._SNICallback ? ServerHandlers : ServerHandlersNoSNI,
       isServer: true,
     });
     connection.on("data", events[0]);
@@ -1607,7 +1614,7 @@ Socket.prototype[Symbol.for("::bunUpgradeServerTLS::")] = function (connection, 
   const result = socket.upgradeTLS({
     data: this,
     tls,
-    socket: ServerHandlers,
+    socket: this._SNICallback ? ServerHandlers : ServerHandlersNoSNI,
     isServer: true,
     initialData: pending || undefined,
   });
@@ -2901,7 +2908,7 @@ Server.prototype[kRealListen] = function (
       reusePort: reusePort || this[bunSocketServerOptions]?.reusePort || false,
       ipv6Only: ipv6Only || this[bunSocketServerOptions]?.ipv6Only || false,
       exclusive: exclusive || this[bunSocketServerOptions]?.exclusive || false,
-      socket: ServerHandlers,
+      socket: this._SNICallback ? ServerHandlers : ServerHandlersNoSNI,
       data: this,
     });
     // Mirror libuv uv_pipe_chmod: readableAll/writableAll relax the unix socket
@@ -2933,7 +2940,7 @@ Server.prototype[kRealListen] = function (
       reusePort: reusePort || this[bunSocketServerOptions]?.reusePort || false,
       ipv6Only: ipv6Only || this[bunSocketServerOptions]?.ipv6Only || false,
       exclusive: exclusive || this[bunSocketServerOptions]?.exclusive || false,
-      socket: ServerHandlers,
+      socket: this._SNICallback ? ServerHandlers : ServerHandlersNoSNI,
       data: this,
     });
   } else {
@@ -2945,7 +2952,7 @@ Server.prototype[kRealListen] = function (
       reusePort: reusePort || this[bunSocketServerOptions]?.reusePort || false,
       ipv6Only: ipv6Only || this[bunSocketServerOptions]?.ipv6Only || false,
       exclusive: exclusive || this[bunSocketServerOptions]?.exclusive || false,
-      socket: ServerHandlers,
+      socket: this._SNICallback ? ServerHandlers : ServerHandlersNoSNI,
       data: this,
     });
   }
