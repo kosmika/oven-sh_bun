@@ -156,15 +156,22 @@ impl SecureContext {
             // `err` is only set for the input-validation paths (bad PEM, missing
             // file, …). When BoringSSL itself fails (e.g. unsupported curve) the
             // enum is still `.none`; surface the library error stack instead of
-            // throwing an empty placeholder.
-            if err == uws::create_bun_socket_error_t::none {
+            // throwing an empty placeholder. A rejected cipher list also keeps
+            // its specific reason (NO_CIPHER_MATCH, INVALID_COMMAND) on the
+            // queue - Node reports that decomposed error rather than a generic
+            // "invalid ciphers".
+            if err == uws::create_bun_socket_error_t::none
+                || err == uws::create_bun_socket_error_t::invalid_ciphers
+            {
                 // `ERR_get_error` is declared `safe fn` in `boringssl_sys` (no
                 // preconditions; reads the thread-local error queue).
                 let code = boringssl::ERR_get_error();
                 if code != 0 {
                     return Err(global.throw_value(err_to_js(global, code)));
                 }
-                return Err(global.throw(format_args!("Failed to create SSL context")));
+                if err == uws::create_bun_socket_error_t::none {
+                    return Err(global.throw(format_args!("Failed to create SSL context")));
+                }
             }
             return Err(global.throw_value(create_bun_socket_error_to_js(err, global)));
         };
@@ -190,23 +197,15 @@ impl SecureContext {
     /// the given PEM string or buffer to this context's trust store, the way
     /// Node's SecureContext exposes it.
     #[bun_jsc::host_fn(method)]
-    pub fn add_ca_cert(
-        this: &Self,
-        global: &JSGlobalObject,
-        frame: &CallFrame,
-    ) -> JsResult<JSValue> {
+    pub fn add_ca_cert(this: &Self, global: &JSGlobalObject, frame: &CallFrame) -> JsResult<JSValue> {
         let args = frame.arguments();
         if args.is_empty() {
-            return Err(
-                global.throw_invalid_arguments(format_args!("addCACert requires a certificate"))
-            );
+            return Err(global.throw_invalid_arguments(format_args!("addCACert requires a certificate")));
         }
         let pem = args[0].to_slice(global)?;
         let bytes = pem.slice();
         if bytes.is_empty() {
-            return Err(
-                global.throw_invalid_arguments(format_args!("addCACert requires a certificate"))
-            );
+            return Err(global.throw_invalid_arguments(format_args!("addCACert requires a certificate")));
         }
         // The C side wants a NUL-terminated PEM document.
         let mut owned = bytes.to_vec();

@@ -762,7 +762,9 @@ SSL_CTX *us_ssl_ctx_build_raw(struct us_bun_socket_context_options_t options,
 
   if (options.ssl_ciphers) {
     if (!SSL_CTX_set_cipher_list(ssl_context, options.ssl_ciphers)) {
-      unsigned long ssl_err = ERR_get_error();
+      /* Peek, don't consume: the caller decomposes the queued reason
+       * (NO_CIPHER_MATCH, INVALID_COMMAND) into the JS error. */
+      unsigned long ssl_err = ERR_peek_error();
       if (!(strlen(options.ssl_ciphers) == 0 && ERR_GET_REASON(ssl_err) == SSL_R_NO_CIPHER_MATCH)) {
         *err = CREATE_BUN_SOCKET_ERROR_INVALID_CIPHERS;
         ssl_ctx_build_fail(ssl_context);

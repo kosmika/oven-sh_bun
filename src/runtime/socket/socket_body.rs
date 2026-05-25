@@ -1485,6 +1485,10 @@ impl<const SSL: bool> NewSocket<SSL> {
         Ok(())
     }
 
+    /// `*mut Self` for the same noalias-reentry reason as `on_session`.
+    ///
+    /// # Safety
+    /// `this` points at a live `NewSocket`; JS-thread only.
     pub unsafe fn on_keylog(this: *mut Self, line: &[u8]) -> JsResult<()> {
         jsc::mark_binding!();
         // SAFETY: per fn contract; shared reborrow only.
