@@ -3173,8 +3173,18 @@ impl<const SSL: bool> NewSocket<SSL> {
             // tears down `raw_handlers` (client-mode handlers free
             // themselves there). No poll_ref — `tls` keeps the loop alive.
             // active_connections=1 was already on raw_handlers from `this`.
+            // OWNS_HANDLERS transfers from the retired wrapper rather than
+            // being asserted: a client socket's Handlers are its own
+            // heap::alloc root and the twin must free them, but an accepted
+            // server socket only borrows an interior pointer into its
+            // listener's embedded Handlers - claiming ownership of that
+            // would bad-free the listener's allocation when the twin is
+            // finalized.
             flags: Cell::new(
-                Flags::BYPASS_TLS | Flags::IS_ACTIVE | Flags::OWNED_PROTOS | Flags::OWNS_HANDLERS,
+                Flags::BYPASS_TLS
+                    | Flags::IS_ACTIVE
+                    | Flags::OWNED_PROTOS
+                    | (this.flags.get() & Flags::OWNS_HANDLERS),
             ),
             this_value: JsCell::new(JsRef::empty()),
             poll_ref: JsCell::new(KeepAlive::init()),
