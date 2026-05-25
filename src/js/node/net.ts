@@ -948,6 +948,7 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
 // the handshake for every client whose SNI does not match a registered name.
 const { serverName: _serverNameHandler, ...ServerHandlersNoSNI } = ServerHandlers;
 
+
 function kConnectTcp(self, addressType, req, address, port) {
   $debug("SocketHandle.kConnectTcp", addressType, address, port);
   const promise = doConnect(self._handle, {
@@ -1305,6 +1306,14 @@ Socket.prototype.connect = function connect(...args) {
     }
     // start using existing connection
     if (connection) {
+      // A generic duplex transport is already established, so this socket is
+      // not "connecting" - only the TLS layer is pending, which
+      // secureConnecting tracks. Node reports false here. A provided
+      // net.Socket keeps its existing accounting (its own connect lifecycle
+      // drives this flag).
+      if (!(connection instanceof Socket)) {
+        this.connecting = false;
+      }
       if (connectListener != null) this.once("secureConnect", connectListener);
       try {
         // reset the underlying writable object when establishing a new connection
