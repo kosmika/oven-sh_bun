@@ -1140,6 +1140,11 @@ function Server(options, secureConnectionListener): void {
       validateFunction(sniCallback, "options.SNICallback");
       this._SNICallback = sniCallback;
     }
+    const alpnCallback = options.ALPNCallback;
+    if (alpnCallback != null) {
+      validateFunction(alpnCallback, "options.ALPNCallback");
+      this._ALPNCallback = alpnCallback;
+    }
   }
 
   NetServer.$apply(this, [options, secureConnectionListener]);

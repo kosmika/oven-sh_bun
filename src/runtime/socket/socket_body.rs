@@ -8,6 +8,8 @@ use core::ptr::{self, NonNull};
 
 use bun_io::KeepAlive;
 use bun_jsc::JsCell;
+use bun_jsc::zig_string::ZigString;
+use bun_jsc::ZigStringJsc as _;
 use bun_ptr::IntrusiveRc;
 // PORT NOTE: do NOT `use bun_boringssl_sys::SSL` here — it shadows the
 // `const SSL: bool` generic param in `NewSocket<SSL>` below, making rustc
@@ -92,6 +94,79 @@ extern "C" fn select_alpn_callback(
     }
     // SAFETY: ex_data slot 0 holds a `*mut TLSSocket` (set in on_open).
     let this: &TLSSocket = unsafe { &*this_ptr.cast::<TLSSocket>() };
+    // Dynamic per-connection ALPN: when the listener's config carries an
+    // `alpnCallback` handler, consult it with the client's protocol list (and
+    // the SNI name) before the static ALPNProtocols list. The JS handler
+    // returns `false` when the server has no ALPNCallback (fall through to
+    // the static list), the selected protocol string, or anything else to
+    // refuse the connection with a fatal no_application_protocol alert - the
+    // same contract as Node's ALPNCallback.
+    {
+        let handlers = this.get_handlers();
+        let callback = handlers.on_alpn_callback;
+        if !callback.is_empty() && !handlers.vm.is_shutting_down() && !in_.is_null() && inlen > 0 {
+            let scope = Handlers::enter_ref(handlers);
+            let global = handlers.global_object;
+            let this_value = this.get_this_value(&global);
+            let wire_len = inlen as usize;
+            let buffer = match JSValue::create_buffer_from_length(&global, wire_len) {
+                Ok(b) => b,
+                Err(_) => {
+                    if scope.exit() {
+                        this.handlers.set(None);
+                    }
+                    return boringssl_sys::SSL_TLSEXT_ERR_ALERT_FATAL;
+                }
+            };
+            if let Some(ab) = buffer.as_array_buffer(&global) {
+                // SAFETY: `ab.ptr` points at a fresh `wire_len`-byte JS buffer
+                // and `in_` is valid for `inlen` per the callback contract.
+                unsafe { core::ptr::copy_nonoverlapping(in_, ab.ptr, wire_len) };
+            }
+            let servername_ptr =
+                unsafe { boringssl_sys::SSL_get_servername(ssl.cast_const(), 0) };
+            let servername_js = if servername_ptr.is_null() {
+                JSValue::UNDEFINED
+            } else {
+                // SAFETY: BoringSSL hands back a NUL-terminated name.
+                let name = unsafe { core::ffi::CStr::from_ptr(servername_ptr) };
+                ZigString::init(name.to_bytes()).to_js(&global)
+            };
+            let result = match callback.call(&global, this_value, &[this_value, servername_js, buffer]) {
+                Ok(v) => v,
+                Err(err) => global.take_exception(err),
+            };
+            if let Some(err_value) = result.to_error() {
+                let _ = handlers.call_error_handler(this_value, &[this_value, err_value]);
+                if scope.exit() {
+                    this.handlers.set(None);
+                }
+                return boringssl_sys::SSL_TLSEXT_ERR_ALERT_FATAL;
+            }
+            if scope.exit() {
+                this.handlers.set(None);
+            }
+            if !result.is_boolean() || result.to_boolean() {
+                // The server has an ALPNCallback and it answered: a string
+                // selects that protocol for this connection; anything else
+                // refuses it.
+                let Ok(chosen) = result.to_slice(&global) else {
+                    return boringssl_sys::SSL_TLSEXT_ERR_ALERT_FATAL;
+                };
+                let chosen_bytes = chosen.slice();
+                if !result.is_string() || chosen_bytes.is_empty() || chosen_bytes.len() > 255 {
+                    return boringssl_sys::SSL_TLSEXT_ERR_ALERT_FATAL;
+                }
+                let mut wire = Vec::with_capacity(chosen_bytes.len() + 1);
+                wire.push(chosen_bytes.len() as u8);
+                wire.extend_from_slice(chosen_bytes);
+                this.protos.set(Some(wire.into_boxed_slice()));
+                // Fall through to the standard selection below, which now
+                // negotiates against the single chosen protocol (and sends the
+                // fatal alert if the client did not actually offer it).
+            }
+        }
+    }
     if let Some(protos) = this.protos.get() {
         if protos.is_empty() {
             return boringssl_sys::SSL_TLSEXT_ERR_NOACK;

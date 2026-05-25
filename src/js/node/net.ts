@@ -471,6 +471,23 @@ const ServerHandlers: SocketHandler<NetSocket> = {
     if (tlsKeylogPath !== undefined) appendTlsKeylog(line);
     self.server?.emit?.("keylog", line, self);
   },
+  alpnCallback(socket, servername, protocolsWire) {
+    // Returns false when this server has no ALPNCallback (the native side
+    // falls through to the static ALPNProtocols list), the selected protocol
+    // string, or undefined to refuse the connection - Node's contract.
+    const self = socket.data;
+    const server = self?.server ?? self;
+    const cb = server?._ALPNCallback;
+    if (typeof cb !== "function") return false;
+    const wire = Buffer.isBuffer(protocolsWire) ? protocolsWire : Buffer.from(protocolsWire);
+    const protocols = [];
+    for (let i = 0; i + 1 <= wire.length; ) {
+      const n = wire[i];
+      protocols.push(wire.toString("latin1", i + 1, i + 1 + n));
+      i += 1 + n;
+    }
+    return cb.$call(self, { servername, protocols });
+  },
   serverName(server, servername) {
     // Returns the native SecureContext a synchronous SNICallback selects for
     // this handshake, or undefined to fall through to the default context.
@@ -947,6 +964,7 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
 // server without an `SNICallback` does not pay a JS round-trip from inside
 // the handshake for every client whose SNI does not match a registered name.
 const { serverName: _serverNameHandler, ...ServerHandlersNoSNI } = ServerHandlers;
+
 
 function kConnectTcp(self, addressType, req, address, port) {
   $debug("SocketHandle.kConnectTcp", addressType, address, port);

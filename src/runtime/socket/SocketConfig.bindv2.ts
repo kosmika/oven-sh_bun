@@ -26,6 +26,7 @@ export const Handlers = b.dictionary(
     session: { type: b.RawAny, internalName: "onSession" },
     keylog: { type: b.RawAny, internalName: "onKeylog" },
     serverName: { type: b.RawAny, internalName: "onServerName" },
+    alpnCallback: { type: b.RawAny, internalName: "onALPNCallback" },
     binaryType: {
       type: BinaryType,
       default: "buffer",

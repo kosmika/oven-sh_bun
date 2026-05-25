@@ -1,9 +1,9 @@
 use core::ffi::{c_char, c_int, c_long, c_void};
 
-use crate::api::bun_secure_context::SecureContext;
 use bun_boringssl_sys as boringssl;
-use bun_core::{String as BunString, ZigString, strings};
+use crate::api::bun_secure_context::SecureContext;
 use bun_jsc::JsClass as _;
+use bun_core::{String as BunString, ZigString, strings};
 use bun_jsc::{
     self as jsc, CallFrame, JSGlobalObject, JSValue, JsResult, StringJsc as _, ZigStringJsc as _,
 };
@@ -193,6 +193,18 @@ pub mod ffi {
         // Swaps the cert/key/chain (and session-related state) this connection
         // serves to those of `ctx`; takes its own reference to `ctx`.
         pub fn SSL_set_SSL_CTX(ssl: *mut SSL, ctx: *mut SSL_CTX) -> *mut SSL_CTX;
+        // Apply `ctx`'s leaf certificate / private key / extra chain directly
+        // to the connection - SSL_set_SSL_CTX alone does not retarget the
+        // certificate once ClientHello processing has reached ALPN selection.
+        pub fn SSL_CTX_get0_certificate(ctx: *const SSL_CTX) -> *mut core::ffi::c_void;
+        pub fn SSL_CTX_get0_privatekey(ctx: *const SSL_CTX) -> *mut core::ffi::c_void;
+        pub fn SSL_use_certificate(ssl: *mut SSL, x509: *mut core::ffi::c_void) -> core::ffi::c_int;
+        pub fn SSL_use_PrivateKey(ssl: *mut SSL, pkey: *mut core::ffi::c_void) -> core::ffi::c_int;
+        pub fn SSL_CTX_get0_chain_certs(
+            ctx: *const SSL_CTX,
+            out_chain: *mut *mut core::ffi::c_void,
+        ) -> core::ffi::c_int;
+        pub fn SSL_set1_chain(ssl: *mut SSL, chain: *mut core::ffi::c_void) -> core::ffi::c_int;
         // Atomic refcount bump on a live `SSL_CTX*`; opaque-ZST ref ⇒ no
         // caller-side precondition (route via `SSL_CTX::opaque_ref`).
         pub safe fn SSL_CTX_up_ref(ctx: &SSL_CTX) -> c_int;
@@ -838,7 +850,11 @@ pub fn get_tls_peer_finished_message(
 /// `tlsSocket.setKeyCert(secureContext)` - serve this connection's identity
 /// from the given context: SSL_set_SSL_CTX swaps the cert/key/chain used for
 /// the rest of the handshake (Node calls it from ALPNCallback / SNICallback).
-pub fn set_key_cert(this: &This, global: &JSGlobalObject, frame: &CallFrame) -> JsResult<JSValue> {
+pub fn set_key_cert(
+    this: &This,
+    global: &JSGlobalObject,
+    frame: &CallFrame,
+) -> JsResult<JSValue> {
     if this.socket.get().is_detached() {
         return Ok(JSValue::UNDEFINED);
     }
@@ -857,6 +873,23 @@ pub fn set_key_cert(this: &This, global: &JSGlobalObject, frame: &CallFrame) -> 
     unsafe {
         let ctx = (*sc).borrow();
         ffi::SSL_set_SSL_CTX(ssl_ptr.cast(), ctx.cast());
+        // SSL_set_SSL_CTX stops retargeting the certificate once ClientHello
+        // processing has reached ALPN selection, and Node supports calling
+        // setKeyCert from ALPNCallback - apply the identity directly.
+        let leaf = ffi::SSL_CTX_get0_certificate(ctx.cast());
+        let pkey = ffi::SSL_CTX_get0_privatekey(ctx.cast());
+        if !leaf.is_null() && !pkey.is_null() {
+            let ok_cert = ffi::SSL_use_certificate(ssl_ptr.cast(), leaf);
+            let ok_key = ffi::SSL_use_PrivateKey(ssl_ptr.cast(), pkey);
+            let mut chain: *mut core::ffi::c_void = core::ptr::null_mut();
+            if ffi::SSL_CTX_get0_chain_certs(ctx.cast(), &raw mut chain) == 1 && !chain.is_null() {
+                let _ = ffi::SSL_set1_chain(ssl_ptr.cast(), chain);
+            }
+            if ok_cert != 1 || ok_key != 1 {
+                boringssl::SSL_CTX_free(ctx.cast());
+                return Err(global.throw(format_args!("setKeyCert failed to apply the context")));
+            }
+        }
         boringssl::SSL_CTX_free(ctx.cast());
     }
     Ok(JSValue::UNDEFINED)
