@@ -50,15 +50,15 @@ template<> StructuredSerializeOptions convertDictionary<StructuredSerializeOptio
         RETURN_IF_EXCEPTION(throwScope, {});
     }
     if (!transferValue.isUndefined()) {
-        // node: any failure to treat options.transfer as an iterable of objects
-        // surfaces as ERR_INVALID_ARG_TYPE rather than a generic sequence error.
-        auto transferScope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
-        result.transfer = convert<IDLSequence<IDLObject>>(lexicalGlobalObject, transferValue);
-        if (transferScope.exception()) {
-            (void)transferScope.tryClearException();
+        // node: a non-object options.transfer is the "not iterable" case and is
+        // remapped to ERR_INVALID_ARG_TYPE; an error thrown from a custom
+        // iterator/getter/Proxy trap on an object propagates unchanged.
+        if (!transferValue.isObject()) {
             throwScope.throwException(&lexicalGlobalObject, createError(defaultGlobalObject(&lexicalGlobalObject), Bun::ErrorCode::ERR_INVALID_ARG_TYPE, "Optional options.transfer argument must be an iterable"_s));
             return {};
         }
+        result.transfer = convert<IDLSequence<IDLObject>>(lexicalGlobalObject, transferValue);
+        RETURN_IF_EXCEPTION(throwScope, {});
     } else
         result.transfer = Converter<IDLSequence<IDLObject>>::ReturnType {};
     return result;
