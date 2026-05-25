@@ -139,6 +139,10 @@ const kpendingSession = Symbol("pendingSession");
 const kPerfHooksNetConnectContext = Symbol("kPerfHooksNetConnectContext");
 const khandshakeTimer = Symbol("khandshakeTimer");
 const kUserUnrefed = Symbol("kUserUnrefed");
+// Set when pause() dropped the handle's hold on the loop, so the read paths
+// only restore a hold they actually removed - re-refing a handle that never
+// held the loop (a wrapped duplex with no fd) would pin the process.
+const kPausedUnref = Symbol("kPausedUnref");
 const kwriteCallback = Symbol("writeCallback");
 const kSocketClass = Symbol("kSocketClass");
 
@@ -1564,12 +1568,13 @@ Socket.prototype.resume = function resume() {
   if (!this.connecting) {
     this._handle?.resume();
   }
-  // Not gated on the connect state: a pause() while connecting drops the
-  // handle's hold on the loop and a resume() while still connecting must be
-  // able to undo that. Only the native read-start has to wait for the
-  // connect to finish.
-  if (!this[kUserUnrefed]) {
+  // Restore the hold pause() removed - even while still connecting, so the
+  // pause-then-resume sequence is symmetric. Gated on the pause flag so a
+  // socket that was never paused (e.g. a wrapped duplex with no fd) is not
+  // newly pinned to the loop.
+  if (this[kPausedUnref] && !this[kUserUnrefed]) {
     this._handle?.ref?.();
+    this[kPausedUnref] = false;
   }
   return Duplex.prototype.resume.$call(this);
 };
@@ -1581,6 +1586,7 @@ Socket.prototype.pause = function pause() {
     // the event loop alive - while it is reading. A paused socket lets the
     // process exit; resume() re-refs it unless the user explicitly unref'd.
     this._handle?.unref?.();
+    this[kPausedUnref] = true;
   }
   return Duplex.prototype.pause.$call(this);
 };
@@ -1639,8 +1645,9 @@ Socket.prototype.read = function read(size) {
     // Restarting kernel reads makes the handle hold the loop open again;
     // mirror resume()'s re-ref or a paused-then-read() socket waits for
     // data without keeping the process alive.
-    if (!this[kUserUnrefed]) {
+    if (this[kPausedUnref] && !this[kUserUnrefed]) {
       this._handle?.ref?.();
+      this[kPausedUnref] = false;
     }
   }
   return Duplex.prototype.read.$call(this, size);
@@ -1654,8 +1661,9 @@ Socket.prototype._read = function _read(size) {
     socket?.resume();
     // See read() above - the Readable machinery's pull path must also
     // restore the handle's hold on the loop.
-    if (!this[kUserUnrefed]) {
+    if (this[kPausedUnref] && !this[kUserUnrefed]) {
       socket?.ref?.();
+      this[kPausedUnref] = false;
     }
   }
 };
