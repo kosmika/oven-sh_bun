@@ -446,6 +446,9 @@ struct ssl_ctx_st *us_ssl_ctx_from_options(
 void us_internal_ssl_ctx_up_ref(struct ssl_ctx_st *ssl_ctx);
 void us_internal_ssl_ctx_unref(struct ssl_ctx_st *ssl_ctx);
 long us_ssl_ctx_live_count(void);
+/* Appends the certificates in the PEM `content` to `ctx`'s trust store;
+ * returns 0 when nothing could be added. */
+int us_ssl_ctx_add_ca_cert(struct ssl_ctx_st *ctx, const char *content);
 
 /* Public interfaces for loops */
 

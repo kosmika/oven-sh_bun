@@ -312,6 +312,12 @@ pub mod c {
         ) -> *mut SSL_CTX;
         // safe: no args; reads a process-global counter — no preconditions.
         pub safe fn us_ssl_ctx_live_count() -> c_long;
+        /// Appends the certificates in the NUL-terminated PEM `content` to
+        /// `ctx`'s trust store; returns 0 when nothing could be added.
+        pub fn us_ssl_ctx_add_ca_cert(
+            ctx: *mut SSL_CTX,
+            content: *const core::ffi::c_char,
+        ) -> core::ffi::c_int;
     }
 }
 

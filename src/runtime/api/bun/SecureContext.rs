@@ -190,6 +190,34 @@ impl SecureContext {
     // and requires `fn finalize(self: Box<Self>)`; clippy::boxed_local is a
     // false positive on that contract.
     #[allow(clippy::boxed_local)]
+    /// `secureContext.context.addCACert(pem)` — appends the certificates in
+    /// the given PEM string or buffer to this context's trust store, the way
+    /// Node's SecureContext exposes it.
+    #[bun_jsc::host_fn(method)]
+    pub fn add_ca_cert(this: &Self, global: &JSGlobalObject, frame: &CallFrame) -> JsResult<JSValue> {
+        let args = frame.arguments();
+        if args.is_empty() {
+            return Err(global.throw_invalid_arguments(format_args!("addCACert requires a certificate")));
+        }
+        let pem = args[0].to_slice(global)?;
+        let bytes = pem.slice();
+        if bytes.is_empty() {
+            return Err(global.throw_invalid_arguments(format_args!("addCACert requires a certificate")));
+        }
+        // The C side wants a NUL-terminated PEM document.
+        let mut owned = bytes.to_vec();
+        owned.push(0);
+        // SAFETY: `this.ctx` is the live SSL_CTX this object owns a reference
+        // to, and `owned` is a NUL-terminated buffer valid for the call.
+        let ok = unsafe {
+            c::us_ssl_ctx_add_ca_cert(this.ctx, owned.as_ptr().cast::<core::ffi::c_char>())
+        };
+        if ok == 0 {
+            return Err(global.throw(format_args!("Invalid CA certificate")));
+        }
+        Ok(JSValue::UNDEFINED)
+    }
+
     pub fn finalize(self: Box<Self>) {
         // SAFETY: `ctx` was created by `SSL_CTX_new`; freed exactly once here.
         unsafe { boringssl::SSL_CTX_free(self.ctx) };

@@ -789,6 +789,20 @@ SSL_CTX *us_ssl_ctx_build_raw(struct us_bun_socket_context_options_t options,
   return ssl_context;
 }
 
+/* node:tls `secureContext.context.addCACert(pem)`: append the certificates in
+ * `content` to this context's trust store. Returns 0 when the content is not
+ * a PEM document or contains a malformed certificate. */
+int us_ssl_ctx_add_ca_cert(SSL_CTX *ctx, const char *content) {
+  if (!ctx || !content) {
+    return 0;
+  }
+  X509_STORE *store = SSL_CTX_get_cert_store(ctx);
+  if (!store) {
+    return 0;
+  }
+  return add_ca_cert_to_ctx_store(ctx, content, store);
+}
+
 SSL_CTX *us_ssl_ctx_from_options(struct us_bun_socket_context_options_t options,
                                  enum create_bun_socket_error_t *err) {
   SSL_CTX *ctx = us_ssl_ctx_build_raw(options, err);
