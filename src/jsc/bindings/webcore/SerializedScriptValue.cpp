@@ -1719,23 +1719,27 @@ private:
                 unsigned line = 0, column = 0;
                 {
                     auto fieldScope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
-                    const auto readString = [&](const JSC::Identifier& name, String& out) {
+                    // Each reader clears a throwing getter's exception; tryClearException
+                    // returns false only for a TerminationException it cannot clear, in
+                    // which case propagate it instead of serializing a bogus record.
+                    const auto readString = [&](const JSC::Identifier& name, String& out) -> bool {
                         JSValue v = errorInstance->get(m_lexicalGlobalObject, name);
                         if (!fieldScope.exception() && v.isString())
                             out = v.toWTFString(m_lexicalGlobalObject);
-                        (void)fieldScope.tryClearException();
+                        return fieldScope.tryClearException();
                     };
-                    const auto readNumber = [&](const JSC::Identifier& name, unsigned& out) {
+                    const auto readNumber = [&](const JSC::Identifier& name, unsigned& out) -> bool {
                         JSValue v = errorInstance->get(m_lexicalGlobalObject, name);
                         if (!fieldScope.exception() && v.isNumber())
                             out = v.toNumber(m_lexicalGlobalObject);
-                        (void)fieldScope.tryClearException();
+                        return fieldScope.tryClearException();
                     };
-                    readString(vm.propertyNames->message, message);
-                    readNumber(vm.propertyNames->line, line);
-                    readNumber(vm.propertyNames->column, column);
-                    readString(vm.propertyNames->sourceURL, sourceURL);
-                    readString(vm.propertyNames->stack, stack);
+                    if (!readString(vm.propertyNames->message, message)
+                        || !readNumber(vm.propertyNames->line, line)
+                        || !readNumber(vm.propertyNames->column, column)
+                        || !readString(vm.propertyNames->sourceURL, sourceURL)
+                        || !readString(vm.propertyNames->stack, stack))
+                        return false;
                 }
 
                 write(ErrorInstanceTag);
