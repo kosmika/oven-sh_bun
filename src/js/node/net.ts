@@ -1576,7 +1576,12 @@ Socket.prototype.pause = function pause() {
     // libuv only counts a stream handle as active - and therefore as keeping
     // the event loop alive - while it is reading. A paused socket lets the
     // process exit; resume() re-refs it unless the user explicitly unref'd.
-    this._handle?.unref?.();
+    // A pending connect keeps the handle active regardless of the read
+    // state, so do not unref a still-connecting socket - resume() skips its
+    // re-ref while connecting and could never undo it.
+    if (!this.connecting) {
+      this._handle?.unref?.();
+    }
   }
   return Duplex.prototype.pause.$call(this);
 };
@@ -1632,6 +1637,12 @@ Socket.prototype[Symbol.for("::bunUpgradeServerTLS::")] = function (connection, 
 Socket.prototype.read = function read(size) {
   if (!this.connecting) {
     this._handle?.resume();
+    // Restarting kernel reads makes the handle hold the loop open again;
+    // mirror resume()'s re-ref or a paused-then-read() socket waits for
+    // data without keeping the process alive.
+    if (!this[kUserUnrefed]) {
+      this._handle?.ref?.();
+    }
   }
   return Duplex.prototype.read.$call(this, size);
 };
@@ -1642,6 +1653,11 @@ Socket.prototype._read = function _read(size) {
     this.once("connect", () => this._read(size));
   } else {
     socket?.resume();
+    // See read() above - the Readable machinery's pull path must also
+    // restore the handle's hold on the loop.
+    if (!this[kUserUnrefed]) {
+      socket?.ref?.();
+    }
   }
 };
 
