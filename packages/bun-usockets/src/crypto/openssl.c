@@ -1040,11 +1040,21 @@ void us_internal_ssl_attach(struct us_socket_t *s, SSL_CTX *ctx,
   s->ssl_read_wants_write = 0;
   s->ssl_fatal_error = 0;
   s->ssl_raw_tap = 0;
+  s->ssl_in_use = 0;
+  s->ssl_pending_detach = 0;
   s->ssl_is_server = is_client ? 0 : 1;
 }
 
 void us_internal_ssl_detach(struct us_socket_t *s) {
   if (s->ssl) {
+    if (s->ssl_in_use) {
+      /* SSL_do_handshake/SSL_read is on the stack (a JS callback run from
+       * inside it destroyed the socket); freeing now would leave BoringSSL
+       * working on freed memory when control returns. The driver frees it
+       * when the call unwinds. */
+      s->ssl_pending_detach = 1;
+      return;
+    }
     SSL_free(s_ssl(s));
     s->ssl = NULL;
   }
@@ -1304,7 +1314,17 @@ static void ssl_update_handshake(struct us_socket_t *s) {
     return;
   }
 
+  unsigned char ssl_was_in_use = s->ssl_in_use;
+  s->ssl_in_use = 1;
   int result = SSL_do_handshake(s_ssl(s));
+  s->ssl_in_use = ssl_was_in_use;
+  if (!ssl_was_in_use && s->ssl_pending_detach) {
+    /* A callback run from inside the handshake destroyed this socket; perform
+     * the deferred close now and do not touch the SSL again. */
+    s->ssl_pending_detach = 0;
+    us_socket_close(s, 0, NULL);
+    return;
+  }
 
   if (SSL_get_shutdown(s_ssl(s)) & SSL_RECEIVED_SHUTDOWN) {
     ssl_close(s, 0, NULL);
@@ -1435,9 +1455,18 @@ struct us_socket_t *us_internal_ssl_on_data(struct us_socket_t *s, char *data, i
   int read = 0;
 restart:
   while (1) {
+    unsigned char ssl_was_in_use = s->ssl_in_use;
+    s->ssl_in_use = 1;
     int just_read = SSL_read(s_ssl(s),
                              loop_ssl_data->ssl_read_output + LIBUS_RECV_BUFFER_PADDING + read,
                              LIBUS_RECV_BUFFER_LENGTH - read);
+    s->ssl_in_use = ssl_was_in_use;
+    if (!ssl_was_in_use && s->ssl_pending_detach) {
+      /* A callback run from inside this read destroyed the socket; perform
+       * the deferred close now and stop processing. */
+      s->ssl_pending_detach = 0;
+      return us_socket_close(s, 0, NULL);
+    }
 
     if (just_read <= 0) {
       int err = SSL_get_error(s_ssl(s), just_read);

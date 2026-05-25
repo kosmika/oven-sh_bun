@@ -267,6 +267,12 @@ struct us_socket_t {
    * Used by Bun's `socket.upgradeTLS()` so the returned [raw, tls] pair's
    * `raw` half can observe ciphertext (node:net Duplex.ondata semantics). */
   unsigned char ssl_raw_tap : 1;
+  /* Set while SSL_do_handshake/SSL_read is on the stack: JS run from inside
+   * those calls (ALPN/SNI/keylog callbacks) may destroy the socket, and the
+   * SSL must not be freed under BoringSSL's feet - the detach is deferred to
+   * the driver's epilogue via ssl_pending_detach. */
+  unsigned char ssl_in_use : 1;
+  unsigned char ssl_pending_detach : 1;
 
   struct us_socket_group_t *group;
   /* NULL for plain TCP. Direct BoringSSL `SSL*`; set by us_internal_ssl_attach
