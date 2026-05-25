@@ -538,10 +538,7 @@ impl Listener {
             // SNI-map miss and re-checks the map before falling back to the
             // default context.
             // SAFETY: `handlers` is embedded in the live Listener.
-            if !unsafe { &*this_ref.handlers.as_ptr() }
-                .on_server_name
-                .is_empty()
-            {
+            if !unsafe { &*this_ref.handlers.as_ptr() }.on_server_name.is_empty() {
                 // S008: `ListenSocket` is an `opaque_ffi!` ZST - safe deref.
                 bun_opaque::opaque_deref_mut(listen_socket).on_server_name(us_dispatch_server_name);
             }
@@ -1920,11 +1917,7 @@ pub(crate) extern "C" fn us_dispatch_server_name(
     // JS wrapper for the Listener itself - `to_js` here would create a second
     // cell owning the same Rust struct and whichever is collected first frees
     // it out from under the other.
-    let this_value = listener
-        .strong_data
-        .get()
-        .get()
-        .unwrap_or(JSValue::UNDEFINED);
+    let this_value = listener.strong_data.get().get().unwrap_or(JSValue::UNDEFINED);
     // SAFETY: `hostname` is NUL-terminated per the fn contract.
     let name = unsafe { core::ffi::CStr::from_ptr(hostname) };
     let js_name = ZigString::init(name.to_bytes()).to_js(&global);
