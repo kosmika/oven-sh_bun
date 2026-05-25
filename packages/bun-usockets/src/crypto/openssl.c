@@ -1329,10 +1329,18 @@ restart:
         }
 
         if (err == SSL_ERROR_SSL || err == SSL_ERROR_SYSCALL) {
-          unsigned long ssl_queue_err = ERR_peek_last_error();
-          if (ssl_queue_err != 0 && !loop_ssl_data->ssl_last_fatal_error[0]) {
-            ERR_error_string_n(ssl_queue_err, loop_ssl_data->ssl_last_fatal_error,
-                               sizeof(loop_ssl_data->ssl_last_fatal_error));
+          /* Only park the reason while the handshake is still pending - that
+           * is the only consumer (the close path's EPROTO dispatch). For a
+           * completed handshake nothing reads it for this socket, and the
+           * ssl_close below runs JS that could tear down a different
+           * mid-handshake socket on this loop, which would then pick up this
+           * socket's reason as its own. */
+          if (s->ssl_handshake_state != HANDSHAKE_COMPLETED) {
+            unsigned long ssl_queue_err = ERR_peek_last_error();
+            if (ssl_queue_err != 0 && !loop_ssl_data->ssl_last_fatal_error[0]) {
+              ERR_error_string_n(ssl_queue_err, loop_ssl_data->ssl_last_fatal_error,
+                                 sizeof(loop_ssl_data->ssl_last_fatal_error));
+            }
           }
           ERR_clear_error();
           s->ssl_fatal_error = 1;
