@@ -1317,7 +1317,7 @@ static void ssl_update_handshake(struct us_socket_t *s) {
     /* A callback run from inside the handshake destroyed this socket; perform
      * the deferred close now and do not touch the SSL again. */
     s->ssl_pending_detach = 0;
-    us_socket_close(s, 0, NULL);
+    us_socket_close(s, s->ssl_pending_close_code, NULL);
     return;
   }
 
@@ -1460,7 +1460,7 @@ restart:
       /* A callback run from inside this read destroyed the socket; perform
        * the deferred close now and stop processing. */
       s->ssl_pending_detach = 0;
-      return us_socket_close(s, 0, NULL);
+      return us_socket_close(s, s->ssl_pending_close_code, NULL);
     }
 
     if (just_read <= 0) {

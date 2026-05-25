@@ -343,9 +343,9 @@ impl SecureContext {
 
 const SSL_CTX_BASE_COST: usize = 50 * 1024;
 
-use bun_jsc::ZigStringJsc as _;
-use bun_jsc::zig_string::ZigString;
 use bun_uws_sys::socket_context::c;
+use bun_jsc::zig_string::ZigString;
+use bun_jsc::ZigStringJsc as _;
 
 mod cpp {
     use super::*;

@@ -263,8 +263,10 @@ struct us_socket_t *us_internal_socket_close_raw(struct us_socket_t *s, int code
     /* A JS callback running from inside SSL_do_handshake/SSL_read (ALPN, SNI,
      * keylog, ...) destroyed this socket. Closing now frees the SSL and
      * releases context state BoringSSL is still reading on the stack; defer
-     * the close to the SSL driver's epilogue instead. */
+     * the close to the SSL driver's epilogue instead, preserving the close
+     * code so a requested reset still resets. */
     s->ssl_pending_detach = 1;
+    s->ssl_pending_close_code = (unsigned char) code;
     return s;
   }
     if (!us_socket_is_closed(s)) {

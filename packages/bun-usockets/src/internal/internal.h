@@ -273,6 +273,10 @@ struct us_socket_t {
    * the driver's epilogue via ssl_pending_detach. */
   unsigned char ssl_in_use : 1;
   unsigned char ssl_pending_detach : 1;
+  /* The close code passed to the deferred close (e.g. a reset requested from
+   * inside a handshake callback must still RST, not FIN, when it is finally
+   * performed). */
+  unsigned char ssl_pending_close_code;
 
   struct us_socket_group_t *group;
   /* NULL for plain TCP. Direct BoringSSL `SSL*`; set by us_internal_ssl_attach
