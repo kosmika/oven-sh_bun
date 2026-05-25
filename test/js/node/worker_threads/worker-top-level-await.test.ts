@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { Worker } from "worker_threads";
 
 // A worker whose entry module's top-level await never settles drains its event
