@@ -75,6 +75,8 @@ test/js/bun/spawn/spawn-maxbuf.test.ts [ FLAKY ]
 # libuv and needs its own implementation of both.
 [ WINDOWS ] test/js/node/test/parallel/test-net-client-bind-twice.js [ FAIL ] # localAddress/localPort binding not implemented for the libuv connect path
 [ WINDOWS ] test/js/node/test/parallel/test-net-server-reset.js [ FAIL ] # connect-time RST reports ECONNREFUSED instead of ECONNRESET on the libuv path
-# SO_REUSEPORT-shared listeners race differently under AddressSanitizer's
-# scheduling on Linux; passes on every other target including regular Linux.
-[ ASAN ] test/js/node/test/sequential/test-net-listen-shared-ports.js [ FAIL ] # SO_REUSEPORT shared-listener timing under ASAN
+# Cluster workers sharing a listen port behave differently on Linux, where
+# SO_REUSEPORT load-balances across the workers' own listeners instead of the
+# primary distributing accepted connections; the upstream test's expectations
+# only hold on the distributing model. Passes on macOS, Windows and FreeBSD.
+[ LINUX ] test/js/node/test/sequential/test-net-listen-shared-ports.js [ FAIL ] # SO_REUSEPORT shared-listener semantics on Linux
