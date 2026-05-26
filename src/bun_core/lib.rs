@@ -1979,8 +1979,16 @@ pub(crate) mod strings_impl {
 
         const HIGH_BITS: u64 = 0x8080_8080_8080_8080;
         let mut copied = 0usize;
-        for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
-            let word = u64::from_ne_bytes(s.try_into().expect("infallible: size matches"));
+        // `as_chunks` yields `&[u8; 8]` words, so the word load is a plain
+        // `from_ne_bytes(*s)` with no fallible `try_into`, and the 8-byte
+        // `copy_from_slice` is a fixed-size copy.
+        for (d, s) in dst
+            .as_chunks_mut::<8>()
+            .0
+            .iter_mut()
+            .zip(src.as_chunks::<8>().0)
+        {
+            let word = u64::from_ne_bytes(*s);
             let mask = word & HIGH_BITS;
             if mask != 0 {
                 let ascii = (mask.trailing_zeros() / 8) as usize;
