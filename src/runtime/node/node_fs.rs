@@ -4272,6 +4272,7 @@ pub mod args {
         pub data: StringOrBuffer,
         pub dirfd: FD,
         pub signal: Option<AbortSignalRef>,
+        pub pinned: bool,
     }
     impl Drop for WriteFile {
         fn drop(&mut self) {
@@ -4290,6 +4291,11 @@ pub mod args {
     impl Unprotect for WriteFile {
         #[inline]
         fn unprotect(&mut self) {
+            if self.pinned {
+                if let Some(buffer) = self.data.buffer() {
+                    buffer.buffer.unpin();
+                }
+            }
             self.file.unprotect();
             self.data.unprotect();
             // Signal unref handled by `Drop` (idempotent via `.take()`).
@@ -4364,8 +4370,18 @@ pub mod args {
             let allow_string_object = false;
             // the pattern in node_fs.zig is to call toThreadSafe after Arguments.*.fromJS
             let is_async = false;
-            let data = StringOrBuffer::from_js_with_encoding_maybe_async(ctx, data_value, encoding, is_async, allow_string_object)?
+            let mut data = StringOrBuffer::from_js_with_encoding_maybe_async(ctx, data_value, encoding, is_async, allow_string_object)?
                 .ok_or_else(|| validators::throw_err_invalid_arg_type_with_message(ctx, format_args!("The \"data\" argument must be of type string or an instance of Buffer, TypedArray, or DataView")))?;
+            let mut pinned = false;
+            if arguments.will_be_async && matches!(data, StringOrBuffer::Buffer(_)) {
+                if let Some(pinned_buffer) = data_value.as_pinned_arraybuffer(ctx) {
+                    data = StringOrBuffer::Buffer(Buffer {
+                        buffer: pinned_buffer,
+                        owns_buffer: false,
+                    });
+                    pinned = true;
+                }
+            }
             let abort_signal = scopeguard::ScopeGuard::into_inner(abort_signal);
             Ok(WriteFile {
                 file: path,
@@ -4376,6 +4392,7 @@ pub mod args {
                 dirfd: FD::cwd(),
                 signal: abort_signal,
                 flush,
+                pinned,
             })
         }
         pub fn aborted(&self) -> bool {
@@ -6660,11 +6677,15 @@ impl NodeFS {
                         E::ENOENT | E::ENOTDIR | E::EPERM => return Ok(()),
                         _ => {}
                     }
-                    let joined = paths::resolve_path::join_z_buf::<paths::platform::Auto>(
-                        &mut buf[..],
-                        &[root_basename, basename.as_bytes()],
-                    );
-                    return Err(err.with_path(joined.as_bytes()));
+                    if root_basename.len() + 1 + basename.as_bytes().len() + 1
+                        < paths::MAX_PATH_BYTES
+                    {
+                        let joined = paths::resolve_path::join_z_buf::<paths::platform::Auto>(
+                            &mut buf[..],
+                            &[root_basename, basename.as_bytes()],
+                        );
+                        return Err(err.with_path(joined.as_bytes()));
+                    }
                 }
                 return Err(err.with_path(args.path.slice()));
             }
@@ -6687,7 +6708,10 @@ impl NodeFS {
             let current = match iterator.next() {
                 Err(err) => {
                     dirent_path_prev.deref();
-                    if !is_root {
+                    if !is_root
+                        && root_basename.len() + 1 + basename.as_bytes().len() + 1
+                            < paths::MAX_PATH_BYTES
+                    {
                         let joined = paths::resolve_path::join_z_buf::<paths::platform::Auto>(
                             &mut buf[..],
                             &[root_basename, basename.as_bytes()],
@@ -6705,6 +6729,11 @@ impl NodeFS {
             // detect "this subtask is the root". The Rust caller passes `is_root`
             // explicitly, which is the same predicate (root subtask's basename *is*
             // root_path).
+            if !is_root
+                && basename.as_bytes().len() + 1 + utf8_name.len() + 1 >= paths::MAX_PATH_BYTES
+            {
+                continue;
+            }
             let name_to_copy: &[u8] = if is_root {
                 utf8_name
             } else {
@@ -6892,6 +6921,11 @@ impl NodeFS {
                 let utf8_name = current.name.slice();
 
                 // name_to_copy: bare name at root, else `basename/utf8_name` joined into `buf`.
+                if !is_root
+                    && basename_bytes.len() + 1 + utf8_name.len() + 1 >= paths::MAX_PATH_BYTES
+                {
+                    continue;
+                }
                 let name_to_copy: &[u8] = if is_root {
                     utf8_name
                 } else {
